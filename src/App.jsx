@@ -10,9 +10,8 @@ import {
   roleLabel,
   todayISO,
   updateDeviceNotes,
-  authenticate,
 } from './model.js'
-import { clearSession, loadDb, loadSession, saveDb, saveSession } from './storage.js'
+import { clearSession, loadDb, loadSession, loginRequest, saveDb, saveSession } from './storage.js'
 import LoginScreen from './screens/LoginScreen.jsx'
 import OverviewScreen from './screens/OverviewScreen.jsx'
 import DeviceScreen from './screens/DeviceScreen.jsx'
@@ -56,14 +55,18 @@ export default function App() {
     }
   }
 
-  function login(username, password) {
-    const nextUser = authenticate(username, password)
-    if (!nextUser) return 'Benutzername oder Passwort ist falsch.'
-    setUser(nextUser)
-    saveSession(nextUser)
-    setRoute({ name: 'overview' })
-    setNotice(null)
-    return null
+  async function login(username, password) {
+    try {
+      const nextUser = await loginRequest(username, password)
+      if (!nextUser) return 'Benutzername oder Passwort ist falsch.'
+      setUser(nextUser)
+      saveSession(nextUser)
+      setRoute({ name: 'overview' })
+      setNotice(null)
+      return null
+    } catch {
+      return 'Die Anmeldung ist gerade nicht möglich.'
+    }
   }
 
   function logout() {

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createSeedDb } from '../src/model.js'
+import { hashPassword, verifyPassword } from './passwords.js'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS groups (
@@ -38,7 +39,31 @@ CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS users (
+  username TEXT PRIMARY KEY,
+  password_hash TEXT NOT NULL,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('standard', 'super')),
+  comment TEXT NOT NULL DEFAULT ''
+);
 `
+
+const SEED_USERS = [
+  {
+    username: 'anna',
+    password: 'wartung',
+    name: 'Anna Berger',
+    role: 'standard',
+    comment: 'Standard Benutzer. Darf Wartungen als durchgeführt markieren.',
+  },
+  {
+    username: 'admin',
+    password: 'super',
+    name: 'Jonas Keller',
+    role: 'super',
+    comment: 'Super Benutzer. Darf Geräte, Gruppen und Wartungen verwalten.',
+  },
+]
 
 export function isState(value) {
   return Boolean(
@@ -62,7 +87,81 @@ export function openDatabase(filePath) {
     writeState(database, createSeedDb())
     database.prepare(`INSERT INTO meta (key, value) VALUES ('seeded', '1')`).run()
   }
+  const userCount = database.prepare('SELECT COUNT(*) AS count FROM users').get()
+  if (Number(userCount.count) === 0) {
+    for (const user of SEED_USERS) saveUser(database, user)
+  }
   return database
+}
+
+function publicUser(row) {
+  return {
+    username: row.username,
+    name: row.name,
+    role: row.role,
+    comment: row.comment,
+  }
+}
+
+export function listUsers(database) {
+  return database
+    .prepare('SELECT username, name, role, comment FROM users ORDER BY username')
+    .all()
+    .map(publicUser)
+}
+
+export function loginUser(database, username, password) {
+  const row = database
+    .prepare('SELECT username, password_hash, name, role, comment FROM users WHERE username = ?')
+    .get(String(username ?? '').trim())
+  if (!row || !verifyPassword(password, row.password_hash)) return null
+  return publicUser(row)
+}
+
+export function saveUser(database, { username, password, name, role, comment = '' }) {
+  const cleanName = String(username ?? '').trim()
+  const cleanRole = role === 'super' ? 'super' : role === 'standard' ? 'standard' : ''
+  if (!cleanName) throw new Error('Benutzername fehlt')
+  if (!password) throw new Error('Passwort fehlt')
+  if (!String(name ?? '').trim()) throw new Error('Name fehlt')
+  if (!cleanRole) throw new Error('Rolle muss standard oder super sein')
+  database
+    .prepare(
+      `INSERT INTO users (username, password_hash, name, role, comment)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(username) DO UPDATE SET
+         password_hash = excluded.password_hash,
+         name = excluded.name,
+         role = excluded.role,
+         comment = excluded.comment`,
+    )
+    .run(cleanName, hashPassword(password), String(name).trim(), cleanRole, String(comment ?? ''))
+}
+
+export function setPassword(database, username, password) {
+  if (!password) throw new Error('Passwort fehlt')
+  const result = database
+    .prepare('UPDATE users SET password_hash = ? WHERE username = ?')
+    .run(hashPassword(password), String(username).trim())
+  if (result.changes === 0) throw new Error('Benutzer nicht gefunden')
+}
+
+export function setComment(database, username, comment) {
+  const result = database
+    .prepare('UPDATE users SET comment = ? WHERE username = ?')
+    .run(String(comment ?? ''), String(username).trim())
+  if (result.changes === 0) throw new Error('Benutzer nicht gefunden')
+}
+
+export function deleteUser(database, username) {
+  const cleanName = String(username).trim()
+  const existing = database.prepare('SELECT role FROM users WHERE username = ?').get(cleanName)
+  if (!existing) throw new Error('Benutzer nicht gefunden')
+  if (existing.role === 'super') {
+    const supers = database.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'super'`).get()
+    if (Number(supers.count) <= 1) throw new Error('Der letzte Super Benutzer kann nicht gelöscht werden')
+  }
+  database.prepare('DELETE FROM users WHERE username = ?').run(cleanName)
 }
 
 export function readState(database) {

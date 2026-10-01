@@ -3,7 +3,6 @@ import test from 'node:test'
 import {
   addDevice,
   addMaintenance,
-  authenticate,
   createSeedDb,
   deleteDevice,
   deviceStatus,
@@ -31,7 +30,7 @@ test('a device takes the most urgent maintenance', () => {
 
 test('marking a maintenance writes documentation and moves the due date', () => {
   const db = createSeedDb(new Date(2026, 9, 1))
-  const user = authenticate('anna', 'wartung')
+  const user = { name: 'Anna Berger', role: 'standard' }
   const result = markPerformed(db, 'm-klima', user, today)
   assert.equal(result.ok, true)
   assert.equal(result.entry.number, 2)
@@ -68,9 +67,6 @@ test('super-user maintenance and device changes validate input', () => {
   assert.equal(removed.maintenances.some((item) => item.deviceId === 'd-klima'), false)
 })
 
-test('login distinguishes the two roles', () => {
-  assert.equal(authenticate('anna', 'wartung').role, 'standard')
-  assert.equal(authenticate('admin', 'super').role, 'super')
-  assert.equal(authenticate('anna', 'super'), null)
+test('today uses the local calendar date', () => {
   assert.equal(todayISO(new Date(2026, 9, 1)), '2026-10-01')
 })

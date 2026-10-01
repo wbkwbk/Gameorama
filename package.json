@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "server": "node server/index.js",
+    "user": "node scripts/user.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "test": "node --test tests/model.test.js tests/db.test.js"

@@ -1,18 +1,3 @@
-export const USERS = [
-  {
-    username: 'anna',
-    password: 'wartung',
-    name: 'Anna Berger',
-    role: 'standard',
-  },
-  {
-    username: 'admin',
-    password: 'super',
-    name: 'Jonas Keller',
-    role: 'super',
-  },
-]
-
 export const LEVEL_LABEL = {
   ok: 'Nächste Wartung',
   soon: 'In 1 Woche fällig',
@@ -24,14 +9,6 @@ const LEVEL_RANK = { none: 0, ok: 1, soon: 2, overdue: 3 }
 
 export function roleLabel(role) {
   return role === 'super' ? 'Super Benutzer' : 'Standard Benutzer'
-}
-
-export function authenticate(username, password) {
-  const found = USERS.find(
-    (user) => user.username === username.trim() && user.password === password,
-  )
-  if (!found) return null
-  return { username: found.username, name: found.name, role: found.role }
 }
 
 export function formatISODate(date) {

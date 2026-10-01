@@ -5,9 +5,9 @@ export default function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
-    const message = onLogin(username, password)
+    const message = await onLogin(username, password)
     setError(message)
   }
 

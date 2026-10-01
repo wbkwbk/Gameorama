@@ -17,6 +17,17 @@ export async function saveDb(db) {
   return response.json()
 }
 
+export async function loginRequest(username, password) {
+  const response = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (response.status === 401) return null
+  if (!response.ok) throw new Error('Anmeldung fehlgeschlagen')
+  return response.json()
+}
+
 export async function loadDb() {
   const legacy = window.localStorage.getItem(LEGACY_KEY)
   if (legacy) {

@@ -1,7 +1,7 @@
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { isState, openDatabase, readState, writeState } from './db.js'
+import { isState, loginUser, openDatabase, readState, writeState } from './db.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -37,6 +37,16 @@ export function startServer({ port = 3001, dbPath }) {
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://127.0.0.1')
+      if (request.method === 'POST' && url.pathname === '/api/login') {
+        const parsed = JSON.parse(await readBody(request))
+        const user = loginUser(database, parsed.username, parsed.password)
+        if (!user) {
+          send(response, 401, { error: 'Benutzername oder Passwort ist falsch.' })
+          return
+        }
+        send(response, 200, user)
+        return
+      }
       if (request.method === 'GET' && url.pathname === '/api/state') {
         send(response, 200, readState(database))
         return
