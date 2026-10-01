@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   addDevice,
   addGroup,
@@ -19,17 +19,41 @@ import DeviceScreen from './screens/DeviceScreen.jsx'
 
 export default function App() {
   const [user, setUser] = useState(() => loadSession())
-  const [db, setDb] = useState(() => loadDb())
+  const [db, setDb] = useState(null)
+  const [loadError, setLoadError] = useState(null)
   const [route, setRoute] = useState({ name: 'overview' })
   const [notice, setNotice] = useState(null)
   const [confirm, setConfirm] = useState(null)
 
+  useEffect(() => {
+    let active = true
+    loadDb()
+      .then((next) => {
+        if (active) setDb(next)
+      })
+      .catch(() => {
+        if (active) setLoadError('Die SQLite-Datenbank ist nicht erreichbar.')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const today = todayISO()
   const isSuper = user?.role === 'super'
 
-  function commit(next) {
+  async function commit(next) {
     setDb(next)
-    saveDb(next)
+    try {
+      setDb(await saveDb(next))
+    } catch {
+      setNotice({ tone: 'error', text: 'Speichern in der Datenbank ist fehlgeschlagen.' })
+      try {
+        setDb(await loadDb())
+      } catch {
+        setLoadError('Die SQLite-Datenbank ist nicht erreichbar.')
+      }
+    }
   }
 
   function login(username, password) {
@@ -60,6 +84,14 @@ export default function App() {
 
   if (!user) {
     return <LoginScreen onLogin={login} />
+  }
+
+  if (loadError) {
+    return <p className="loading-page">{loadError}</p>
+  }
+
+  if (!db) {
+    return <p className="loading-page">Daten werden aus SQLite geladen …</p>
   }
 
   const device = route.name === 'device'

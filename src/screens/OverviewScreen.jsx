@@ -44,7 +44,9 @@ export default function OverviewScreen({
       <div className="board-head">
         <div>
           <h1>Übersicht</h1>
-          <p className="muted">Geräte nach Gruppe. Die Farbe zeigt den nächsten Wartungstermin.</p>
+          <p className="muted">
+            Geräte nach Gruppe. Die Farbe zeigt den nächsten Wartungstermin. Gespeichert in der SQLite-Datenbank auf diesem Rechner.
+          </p>
         </div>
         <ul className="summary">
           <li className="overdue">{counts.overdue} überfällig</li>
