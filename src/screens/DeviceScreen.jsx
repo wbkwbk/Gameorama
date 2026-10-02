@@ -124,7 +124,11 @@ export default function DeviceScreen({
   useEffect(() => {
     setNotes(device.notes)
     setNotesSaved(false)
-  }, [device.id, device.notes])
+  }, [device.id])
+
+  useEffect(() => {
+    setNotes(device.notes)
+  }, [device.notes])
 
   const status = deviceStatus(device.id, db.maintenances, today)
   const maintenances = db.maintenances
