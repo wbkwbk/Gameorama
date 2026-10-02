@@ -195,8 +195,10 @@ export default function DeviceScreen({
   onSaveDetail,
   onAddMaintenance,
   onDeleteMaintenance,
+  onEditMaintenance,
   onMoveMaintenance,
   onCopyMaintenance,
+  onDeleteDocumentation,
   onDeleteDevice,
 }) {
   const [notes, setNotes] = useState(device.notes)
@@ -332,28 +334,39 @@ export default function DeviceScreen({
                       </td>
                       <td>{item.performedBy}</td>
                       <td>
-                        <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
-                          <span>Durchgeführt</span>
-                          <small>{user.name}</small>
-                        </button>
-                        {isSuper && (
-                          <button
-                            type="button"
-                            className="btn tiny danger"
-                            onClick={() => onDeleteMaintenance(item.id, item.description)}
-                          >
-                            Löschen
+                        <div className="maint-actions">
+                          <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
+                            <span>Durchgeführt</span>
+                            <small>{user.name}</small>
                           </button>
-                        )}
-                        {isSuper && (
-                          <MaintenanceTransfer
-                            item={item}
-                            devices={otherDevices}
-                            groups={db.groups}
-                            onMove={onMoveMaintenance}
-                            onCopy={onCopyMaintenance}
-                          />
-                        )}
+                          {isSuper && (
+                            <button
+                              type="button"
+                              className="btn tiny secondary"
+                              onClick={() => onEditMaintenance(item.id)}
+                            >
+                              Bearbeiten
+                            </button>
+                          )}
+                          {isSuper && (
+                            <button
+                              type="button"
+                              className="btn tiny danger"
+                              onClick={() => onDeleteMaintenance(item.id, item.description)}
+                            >
+                              Löschen
+                            </button>
+                          )}
+                          {isSuper && (
+                            <MaintenanceTransfer
+                              item={item}
+                              devices={otherDevices}
+                              groups={db.groups}
+                              onMove={onMoveMaintenance}
+                              onCopy={onCopyMaintenance}
+                            />
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -467,6 +480,7 @@ export default function DeviceScreen({
                   <th>Wartungstatus</th>
                   <th>Wartung durchgeführt durch</th>
                   <th>Durchgeführt am</th>
+                  {isSuper && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -489,6 +503,17 @@ export default function DeviceScreen({
                     </td>
                     <td>{item.performedBy}</td>
                     <td>{item.completedAt ? formatDisplayDate(item.completedAt) : ''}</td>
+                    {isSuper && (
+                      <td>
+                        <button
+                          type="button"
+                          className="btn tiny danger"
+                          onClick={() => onDeleteDocumentation(item.id, item.description)}
+                        >
+                          Dokumentation löschen
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

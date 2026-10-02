@@ -976,3 +976,220 @@ test('super can rename groups, move devices and maintenances, and copy an open m
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('super can update all maintenance text fields and a standard token gets 403', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const anna = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'anna', password: 'wartung' }),
+    }).then((response) => response.json())
+    const before = await fetch(`${base}/api/state`).then((response) => response.json())
+    const count = before.maintenances.length
+    const body = {
+      dueDate: '2026-12-15',
+      intervalWeeks: 6,
+      description: 'Filter und Dichtung prüfen',
+      detail: 'Neues Filterset aus dem Lager.',
+      createdBy: 'Mia Frei',
+      status: 'offen',
+      performedBy: 'Lea Sommer',
+      completedAt: '2026-10-03',
+    }
+    const savedResponse = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(body),
+    })
+    assert.equal(savedResponse.status, 200)
+    const saved = await savedResponse.json()
+    assert.equal(saved.maintenances.length, count)
+    const updated = saved.maintenances.find((item) => item.id === 'm-klima')
+    assert.equal(updated.dueDate, '2026-12-15')
+    assert.equal(updated.intervalWeeks, 6)
+    assert.equal(updated.description, 'Filter und Dichtung prüfen')
+    assert.equal(updated.detail, 'Neues Filterset aus dem Lager.')
+    assert.equal(updated.createdBy, 'Mia Frei')
+    assert.equal(updated.status, 'offen')
+    assert.equal(updated.performedBy, 'Lea Sommer')
+    assert.equal(updated.completedAt, null)
+    assert.equal(saved.maintenances.filter((item) => item.deviceId === 'd-klima' && item.status === 'offen').length, 1)
+
+    const doneResponse = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify({ ...body, status: 'erledigt' }),
+    })
+    assert.equal(doneResponse.status, 200)
+    const done = await doneResponse.json()
+    assert.equal(done.maintenances.length, count)
+    const finished = done.maintenances.find((item) => item.id === 'm-klima')
+    assert.equal(finished.status, 'erledigt')
+    assert.equal(finished.description, 'Filter und Dichtung prüfen')
+    assert.equal(finished.detail, 'Neues Filterset aus dem Lager.')
+    assert.equal(finished.createdBy, 'Mia Frei')
+    assert.equal(finished.performedBy, 'Lea Sommer')
+    assert.equal(finished.completedAt, '2026-10-03')
+    assert.equal(finished.dueDate, '2026-12-15')
+    assert.equal(finished.intervalWeeks, 6)
+    assert.equal(
+      done.maintenances.some((item) => item.id !== 'm-klima' && item.description === finished.description),
+      false,
+    )
+
+    const forbidden = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify({ ...body, description: 'Anna ändert den Text', status: 'erledigt' }),
+    })
+    assert.equal(forbidden.status, 403)
+    const kept = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(kept.maintenances.find((item) => item.id === 'm-klima').description, 'Filter und Dichtung prüfen')
+    assert.equal(kept.maintenances.find((item) => item.id === 'm-klima').performedBy, 'Lea Sommer')
+
+    const bypass = structuredClone(kept)
+    bypass.maintenances.find((item) => item.id === 'm-klima').description = 'Anna ändert den Text'
+    const bypassResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(bypass),
+    })
+    assert.equal(bypassResponse.status, 403)
+
+    const emptyResponse = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify({ ...body, description: '   ', status: 'erledigt' }),
+    })
+    assert.equal(emptyResponse.status, 400)
+    assert.equal((await emptyResponse.json()).error, 'Bitte eine Wartungsbeschreibung angeben.')
+    const missingDate = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify({ ...body, dueDate: '', status: 'erledigt' }),
+    })
+    assert.equal(missingDate.status, 400)
+    assert.equal((await missingDate.json()).error, 'Bitte ein Fälligkeitsdatum angeben.')
+    const badInterval = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify({ ...body, intervalWeeks: 0, status: 'erledigt' }),
+    })
+    assert.equal(badInterval.status, 400)
+    assert.equal((await badInterval.json()).error, 'Das Intervall muss mindestens 1 Woche sein.')
+    const unchanged = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(unchanged.maintenances.find((item) => item.id === 'm-klima').description, 'Filter und Dichtung prüfen')
+    assert.equal(unchanged.maintenances.length, count)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deleting an erledigt maintenance leaves the open copy in place', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server, database } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const anna = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'anna', password: 'wartung' }),
+    }).then((response) => response.json())
+    const before = await fetch(`${base}/api/state`).then((response) => response.json())
+    const performed = markPerformed(before, 'm-klima', { name: 'Anna Berger', role: 'standard' }, '2026-10-02')
+    assert.equal(performed.ok, true)
+    const savedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(performed.db),
+    })
+    assert.equal(savedResponse.status, 200)
+    const saved = await savedResponse.json()
+    const open = openMaintenances(saved.maintenances, 'd-klima')
+    assert.equal(open.length, 1)
+    const successor = open[0]
+    assert.notEqual(successor.id, 'm-klima')
+    assert.equal(successor.status, 'offen')
+
+    const completedUpload = await fetch(
+      `${base}/api/documents?owner=m-klima&filename=${encodeURIComponent('Filter.pdf')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/octet-stream' },
+        body: 'Filterprotokoll',
+      },
+    )
+    assert.equal(completedUpload.status, 200)
+    const completedDoc = await completedUpload.json()
+    const successorUpload = await fetch(
+      `${base}/api/documents?owner=${encodeURIComponent(successor.id)}&filename=${encodeURIComponent('Naechste.txt')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/octet-stream' },
+        body: 'Folgewartung',
+      },
+    )
+    assert.equal(successorUpload.status, 200)
+    const successorDoc = await successorUpload.json()
+    const completedFile = database.prepare('SELECT stored_name FROM documents WHERE id = ?').get(completedDoc.id).stored_name
+    const successorFile = database.prepare('SELECT stored_name FROM documents WHERE id = ?').get(successorDoc.id).stored_name
+    assert.equal(existsSync(path.join(uploadsDirectory(database), completedFile)), true)
+
+    const omitted = structuredClone(saved)
+    omitted.maintenances = omitted.maintenances.filter((item) => item.id !== 'm-klima')
+    const omittedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(omitted),
+    })
+    assert.equal(omittedResponse.status, 403)
+
+    const annaDelete = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'DELETE',
+      headers: authHeaders(anna.token),
+    })
+    assert.equal(annaDelete.status, 403)
+    const still = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(still.maintenances.some((item) => item.id === 'm-klima' && item.status === 'erledigt'), true)
+    assert.equal(still.maintenances.some((item) => item.id === successor.id && item.status === 'offen'), true)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), completedFile)), true)
+
+    const removedResponse = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'DELETE',
+      headers: authHeaders(admin.token),
+    })
+    assert.equal(removedResponse.status, 200)
+    const removed = await removedResponse.json()
+    assert.equal(removed.maintenances.some((item) => item.id === 'm-klima'), false)
+    const remaining = removed.maintenances.find((item) => item.id === successor.id)
+    assert.equal(remaining.status, 'offen')
+    assert.equal(remaining.deviceId, 'd-klima')
+    assert.equal(remaining.description, successor.description)
+    assert.equal(listDocuments(database, 'm-klima').length, 0)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), completedFile)), false)
+    assert.equal(listDocuments(database, successor.id).map((item) => item.id).join(','), successorDoc.id)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), successorFile)), true)
+    assert.equal(removed.maintenances.some((item) => item.id === 'm-flipper-oil'), true)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -16,10 +16,21 @@ import {
   updateDeviceNotes,
   updateMaintenanceDetail,
 } from './model.js'
-import { clearSession, loadDb, loadSession, loginRequest, logoutRequest, saveDb, saveSession } from './storage.js'
+import {
+  clearSession,
+  deleteMaintenanceRecordRequest,
+  loadDb,
+  loadSession,
+  loginRequest,
+  logoutRequest,
+  saveDb,
+  saveSession,
+  updateMaintenanceRequest,
+} from './storage.js'
 import LoginScreen from './screens/LoginScreen.jsx'
 import OverviewScreen from './screens/OverviewScreen.jsx'
 import DeviceScreen from './screens/DeviceScreen.jsx'
+import MaintenanceEditScreen from './screens/MaintenanceEditScreen.jsx'
 import UsersScreen from './screens/UsersScreen.jsx'
 import GroupsScreen from './screens/GroupsScreen.jsx'
 
@@ -177,8 +188,11 @@ export default function App() {
     return <p className="loading-page">Daten werden aus SQLite geladen …</p>
   }
 
-  const device = route.name === 'device'
+  const device = route.name === 'device' || route.name === 'maintenance-edit'
     ? db.devices.find((item) => item.id === route.deviceId)
+    : null
+  const editing = route.name === 'maintenance-edit'
+    ? db.maintenances.find((item) => item.id === route.maintenanceId && item.deviceId === route.deviceId)
     : null
 
   return (
@@ -212,7 +226,23 @@ export default function App() {
       </header>
 
       <main>
-        {route.name === 'device' && device ? (
+        {route.name === 'maintenance-edit' && isSuper && device && editing ? (
+          <MaintenanceEditScreen
+            device={device}
+            maintenance={editing}
+            token={user.token}
+            onCancel={() => {
+              setNotice(null)
+              setRoute({ name: 'device', deviceId: device.id })
+            }}
+            onSave={async (fields) => {
+              const next = await updateMaintenanceRequest(user.token, editing.id, fields)
+              setDb(next)
+              setNotice({ tone: 'ok', text: 'Wartung gespeichert.' })
+              setRoute({ name: 'device', deviceId: device.id })
+            }}
+          />
+        ) : route.name === 'device' && device ? (
           <DeviceScreen
             db={db}
             device={device}
@@ -260,6 +290,30 @@ export default function App() {
                 action: () => {
                   commit(deleteMaintenance(db, maintenanceId))
                   setNotice({ tone: 'ok', text: 'Wartung gelöscht.' })
+                },
+              })
+            }}
+            onEditMaintenance={(maintenanceId) => {
+              setNotice(null)
+              setRoute({ name: 'maintenance-edit', deviceId: device.id, maintenanceId })
+            }}
+            onDeleteDocumentation={(maintenanceId, description) => {
+              askConfirm({
+                title: 'Dokumentation löschen',
+                message: `«${description}» wird aus der Dokumentation entfernt. Dokumente dieser Wartung werden gelöscht. Die offene Folgewartung bleibt erhalten.`,
+                confirmLabel: 'Dokumentation löschen',
+                action: () => {
+                  deleteMaintenanceRecordRequest(user.token, maintenanceId)
+                    .then((next) => {
+                      setDb(next)
+                      setNotice({ tone: 'ok', text: 'Dokumentation gelöscht.' })
+                    })
+                    .catch((error) => {
+                      setNotice({
+                        tone: 'error',
+                        text: error instanceof Error ? error.message : 'Dokumentation konnte nicht gelöscht werden.',
+                      })
+                    })
                 },
               })
             }}

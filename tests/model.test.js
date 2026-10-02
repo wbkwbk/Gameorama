@@ -12,6 +12,8 @@ import {
   markPerformed,
   moveDevice,
   moveMaintenance,
+  maintenanceEditError,
+  maintenanceEditFields,
   nextFreeDeviceNumber,
   openMaintenances,
   renameGroup,
@@ -195,6 +197,41 @@ test('a maintenance stores Wartungsbeschrieb separately from the short descripti
     createdBy: 'Jonas Keller',
   })
   assert.equal(empty.db.maintenances.at(-1).detail, '')
+})
+
+test('editing a maintenance validates the text fields and does not invent a completion date', () => {
+  assert.equal(
+    maintenanceEditError({ description: '   ', dueDate: '2026-12-01', intervalWeeks: 2, status: 'offen' }),
+    'Bitte eine Wartungsbeschreibung angeben.',
+  )
+  assert.equal(
+    maintenanceEditError({ description: 'Filter prüfen', dueDate: '', intervalWeeks: 2, status: 'offen' }),
+    'Bitte ein Fälligkeitsdatum angeben.',
+  )
+  assert.equal(
+    maintenanceEditError({ description: 'Filter prüfen', dueDate: '2026-12-01', intervalWeeks: 0, status: 'offen' }),
+    'Das Intervall muss mindestens 1 Woche sein.',
+  )
+  const done = maintenanceEditFields({
+    description: ' Filter prüfen ',
+    dueDate: '2026-12-15',
+    intervalWeeks: 6,
+    detail: 'Neues Filterset.',
+    createdBy: 'Mia Frei',
+    status: 'erledigt',
+    performedBy: 'Lea Sommer',
+    completedAt: '2026-10-03',
+  })
+  assert.equal(done.description, 'Filter prüfen')
+  assert.equal(done.detail, 'Neues Filterset.')
+  assert.equal(done.createdBy, 'Mia Frei')
+  assert.equal(done.performedBy, 'Lea Sommer')
+  assert.equal(done.completedAt, '2026-10-03')
+  assert.equal(done.status, 'erledigt')
+  const open = maintenanceEditFields({ ...done, status: 'offen', completedAt: '' })
+  assert.equal(open.status, 'offen')
+  assert.equal(open.completedAt, null)
+  assert.equal(open.performedBy, 'Lea Sommer')
 })
 
 test('device lists sort by urgency and then by name', () => {

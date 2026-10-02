@@ -15,10 +15,12 @@ import {
   loginUser,
   openDatabase,
   readDocumentFile,
+  deleteMaintenanceRecord,
   readState,
   saveDocument,
   saveUser,
   sessionUser,
+  updateMaintenance,
   updateUser,
   writeState,
 } from './db.js'
@@ -275,6 +277,29 @@ export function startServer({ port = 3001, dbPath }) {
         return
       }
 
+      if (pathname.startsWith('/api/maintenances/')) {
+        const id = decodeUsername(pathname.slice('/api/maintenances/'.length))
+        if (!id || id.includes('/')) {
+          send(response, 404, { error: 'Nicht gefunden' })
+          return
+        }
+        if (request.method !== 'PUT' && request.method !== 'DELETE') {
+          send(response, 404, { error: 'Nicht gefunden' })
+          return
+        }
+        if (!requireSuper(database, request)) {
+          send(response, 403, { error: 'Keine Berechtigung' })
+          return
+        }
+        if (request.method === 'DELETE') {
+          send(response, 200, deleteMaintenanceRecord(database, id))
+          return
+        }
+        const parsed = await readJson(request)
+        send(response, 200, updateMaintenance(database, id, parsed))
+        return
+      }
+
       if (pathname === '/api/users' || pathname.startsWith('/api/users/')) {
         if (!requireSuper(database, request)) {
           send(response, 403, { error: 'Keine Berechtigung' })
@@ -302,7 +327,9 @@ export function startServer({ port = 3001, dbPath }) {
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : 'Ungültige Daten'
       const status =
-        message === 'Benutzer nicht gefunden' || message === 'Dokument nicht gefunden'
+        message === 'Benutzer nicht gefunden' ||
+        message === 'Dokument nicht gefunden' ||
+        message === 'Diese Wartung gibt es nicht mehr.'
           ? 404
           : message === 'Nicht angemeldet'
             ? 401

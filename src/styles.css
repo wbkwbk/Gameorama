@@ -488,8 +488,9 @@ tr.level-ok td { background: #f7fbf8; }
 }
 .maint-status.offen { background: var(--soon-bg); color: var(--soon); }
 .maint-status.erledigt { background: var(--ok-bg); color: var(--ok); }
-td .done-btn + .btn.tiny,
-td .btn.tiny + .btn.tiny { margin-top: 0.4rem; }
+.maint-actions { display: grid; gap: 0.4rem; justify-items: start; }
+.maint-actions .maint-transfer { margin-top: 0.15rem; }
+.maintenance-edit .btn.ghost { color: var(--navy); }
 .maint-transfer { margin-top: 0.55rem; min-width: 16rem; max-width: 20rem; }
 .maint-transfer > .btn.tiny {
   white-space: normal;

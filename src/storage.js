@@ -98,6 +98,25 @@ export async function uploadDocument(token, ownerId, file) {
   return response.json()
 }
 
+export async function updateMaintenanceRequest(token, id, fields) {
+  const response = await fetch(`/api/maintenances/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Wartung konnte nicht gespeichert werden.'))
+  return response.json()
+}
+
+export async function deleteMaintenanceRecordRequest(token, id) {
+  const response = await fetch(`/api/maintenances/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Dokumentation konnte nicht gelöscht werden.'))
+  return response.json()
+}
+
 export async function deleteDocumentRequest(token, id) {
   const response = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
     method: 'DELETE',

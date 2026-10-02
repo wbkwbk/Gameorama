@@ -437,6 +437,37 @@ export function updateDeviceNotes(db, deviceId, notes) {
   }
 }
 
+export function maintenanceEditError(fields) {
+  const description = String(fields?.description ?? '').trim()
+  const dueDate = String(fields?.dueDate ?? '').trim()
+  const interval = Number(fields?.intervalWeeks)
+  if (!description) return 'Bitte eine Wartungsbeschreibung angeben.'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return 'Bitte ein Fälligkeitsdatum angeben.'
+  if (!Number.isInteger(interval) || interval < 1) {
+    return 'Das Intervall muss mindestens 1 Woche sein.'
+  }
+  if (fields?.status !== 'offen' && fields?.status !== 'erledigt') {
+    return 'Der Wartungstatus muss offen oder erledigt sein.'
+  }
+  return null
+}
+
+export function maintenanceEditFields(fields) {
+  const status = fields.status === 'erledigt' ? 'erledigt' : 'offen'
+  const completedRaw = String(fields.completedAt ?? '').slice(0, 10)
+  const completedAt = status === 'erledigt' && /^\d{4}-\d{2}-\d{2}$/.test(completedRaw) ? completedRaw : null
+  return {
+    dueDate: String(fields.dueDate ?? '').trim(),
+    intervalWeeks: Number(fields.intervalWeeks),
+    description: String(fields.description ?? '').trim(),
+    detail: String(fields.detail ?? ''),
+    createdBy: String(fields.createdBy ?? '').trim(),
+    status,
+    performedBy: String(fields.performedBy ?? '').trim(),
+    completedAt,
+  }
+}
+
 export function updateMaintenanceDetail(db, maintenanceId, detail) {
   const current = db.maintenances.find((item) => item.id === maintenanceId)
   if (!current) return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }

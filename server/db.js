@@ -2,7 +2,14 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { addWeeks, createSeedDb, formatISODate, prepareDeviceNumbers } from '../src/model.js'
+import {
+  addWeeks,
+  createSeedDb,
+  formatISODate,
+  maintenanceEditError,
+  maintenanceEditFields,
+  prepareDeviceNumbers,
+} from '../src/model.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
 const SCHEMA = `
@@ -614,7 +621,31 @@ function followUpMatches(item, completion) {
   )
 }
 
+function assertStandardUserCannotEditMaintenances(incoming, previous, actor) {
+  if (actor?.role === 'super') return
+  const incomingIds = new Set(incoming.map((item) => String(item.id)))
+  for (const prev of previous) {
+    if (!incomingIds.has(String(prev.id))) throw new Error('Keine Berechtigung')
+  }
+  const previousById = new Map(previous.map((item) => [String(item.id), item]))
+  for (const item of incoming) {
+    const prev = previousById.get(String(item.id))
+    if (!prev) continue
+    const completing = prev.status !== 'erledigt' && item.status === 'erledigt'
+    if (completing) continue
+    const changed =
+      String(item.dueDate) !== String(prev.dueDate) ||
+      Number(item.intervalWeeks) !== Number(prev.intervalWeeks) ||
+      String(item.description ?? '').trim() !== String(prev.description ?? '').trim() ||
+      String(item.createdBy ?? '') !== String(prev.createdBy ?? '') ||
+      String(item.performedBy ?? '') !== String(prev.performedBy ?? '') ||
+      (item.status === 'erledigt' ? 'erledigt' : 'offen') !== (prev.status === 'erledigt' ? 'erledigt' : 'offen')
+    if (changed) throw new Error('Keine Berechtigung')
+  }
+}
+
 function mergeMaintenances(incoming, previous, actor) {
+  assertStandardUserCannotEditMaintenances(incoming, previous, actor)
   const previousById = new Map(previous.map((item) => [String(item.id), item]))
   const completions = []
   for (const item of incoming) {
@@ -836,6 +867,46 @@ function assertGroupAndAssignmentRights(previous, state, actor) {
     if (!superUser) throw new Error('Keine Berechtigung')
     if (!deviceIds.has(deviceId)) throw new Error('Das Gerät gibt es nicht mehr.')
   }
+}
+
+export function updateMaintenance(database, id, fields) {
+  const cleanId = String(id ?? '')
+  const existing = database.prepare('SELECT id FROM maintenances WHERE id = ?').get(cleanId)
+  if (!existing) throw new Error('Diese Wartung gibt es nicht mehr.')
+  const error = maintenanceEditError(fields)
+  if (error) throw new Error(error)
+  const next = maintenanceEditFields(fields)
+  database
+    .prepare(
+      `UPDATE maintenances
+       SET due_date = ?, interval_weeks = ?, description = ?, detail = ?,
+           created_by = ?, status = ?, performed_by = ?, completed_at = ?
+       WHERE id = ?`,
+    )
+    .run(
+      next.dueDate,
+      next.intervalWeeks,
+      next.description,
+      next.detail,
+      next.createdBy,
+      next.status,
+      next.performedBy,
+      next.completedAt,
+      cleanId,
+    )
+  return readState(database)
+}
+
+export function deleteMaintenanceRecord(database, id) {
+  const cleanId = String(id ?? '')
+  const existing = database.prepare('SELECT id, status FROM maintenances WHERE id = ?').get(cleanId)
+  if (!existing) throw new Error('Diese Wartung gibt es nicht mehr.')
+  if (existing.status !== 'erledigt') {
+    throw new Error('Nur erledigte Wartungen können aus der Dokumentation gelöscht werden.')
+  }
+  database.prepare('DELETE FROM maintenances WHERE id = ?').run(cleanId)
+  pruneDocuments(database, readState(database))
+  return readState(database)
 }
 
 export function writeState(database, state, actor = null) {
