@@ -7,13 +7,15 @@ async function fetchState() {
   return response.json()
 }
 
-export async function saveDb(db) {
+export async function saveDb(db, token) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
   const response = await fetch('/api/state', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(db),
   })
-  if (!response.ok) throw new Error('Speichern fehlgeschlagen')
+  if (!response.ok) throw new Error(await apiError(response, 'Speichern fehlgeschlagen'))
   return response.json()
 }
 
@@ -86,7 +88,8 @@ export async function loadDb() {
   const legacy = window.localStorage.getItem(LEGACY_KEY)
   if (legacy) {
     try {
-      const saved = await saveDb(JSON.parse(legacy))
+      const session = loadSession()
+      const saved = await saveDb(JSON.parse(legacy), session?.token)
       window.localStorage.removeItem(LEGACY_KEY)
       return saved
     } catch {

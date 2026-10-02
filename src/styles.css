@@ -204,7 +204,38 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
   box-shadow: var(--shadow);
 }
 .group h2, .device-page h2 { font-size: 1.25rem; }
-.device-list { list-style: none; padding: 0; margin: 0.8rem 0 0; display: grid; gap: 0.55rem; }
+.device-list-frame { margin-top: 0.8rem; }
+.device-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+  align-content: start;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  height: 14.5rem;
+  min-height: 14.5rem;
+  max-height: 70vh;
+}
+.resize-handle {
+  display: block;
+  width: 100%;
+  height: 1rem;
+  margin-top: 0.2rem;
+  padding: 0;
+  border: 0;
+  border-bottom: 4px solid #d9d0c1;
+  border-radius: 0 0 0.75rem 0.75rem;
+  background: transparent;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.resize-handle:hover,
+.resize-handle:focus-visible {
+  border-bottom-color: var(--navy-2);
+  background: rgba(20, 35, 58, 0.04);
+}
 .device-row {
   display: flex;
   gap: 0.6rem;
@@ -230,6 +261,22 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
   gap: 0.15rem 0.8rem;
 }
 .device-name { font-weight: 700; font-size: 1.05rem; }
+.device-number {
+  margin-left: 0.45rem;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.device-title h1 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+.device-title h1 .device-number { margin-left: 0; font-size: 1.05rem; }
 .device-meta { grid-column: 2; color: var(--muted); }
 .pill {
   justify-self: start;
@@ -250,6 +297,7 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
   margin-top: 0.9rem;
 }
 .inline-form label, .maintenance-form label, .notes-form label { flex: 1 1 14rem; }
+.number-field { flex: 0 1 8.5rem; }
 .maintenance-form .grow { flex: 2 1 18rem; }
 .group-create { margin-top: 1rem; }
 
@@ -295,7 +343,18 @@ tr.level-ok td { background: #f7fbf8; }
   min-width: 9rem;
 }
 .done-btn small { font-weight: 400; opacity: 0.9; }
-td .btn.tiny { margin-top: 0.4rem; }
+.maint-table { min-width: 52rem; }
+.maint-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+.maint-status.offen { background: var(--soon-bg); color: var(--soon); }
+.maint-status.erledigt { background: var(--ok-bg); color: var(--ok); }
+.legacy-title { margin-top: 1.2rem; font-size: 1.05rem; }
+td .done-btn + .btn.tiny { margin-top: 0.4rem; }
 .notes-read { white-space: pre-wrap; margin-top: 0.7rem; }
 
 .modal-backdrop {

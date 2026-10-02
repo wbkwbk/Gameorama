@@ -96,7 +96,7 @@ export default function App() {
   async function commit(next) {
     setDb(next)
     try {
-      setDb(await saveDb(next))
+      setDb(await saveDb(next, user?.token))
     } catch {
       setNotice({ tone: 'error', text: 'Speichern in der Datenbank ist fehlgeschlagen.' })
       try {
@@ -213,14 +213,12 @@ export default function App() {
               commit(result.db)
               setNotice({
                 tone: 'ok',
-                text: `Dokumentiert als Wartung Nr. ${result.entry.number} für ${user.name}. Nächster Termin in ${
-                  db.maintenances.find((item) => item.id === maintenanceId).intervalWeeks
-                } Wochen.`,
+                text: `Als erledigt markiert. Durchgeführt durch ${user.name}.`,
               })
             }}
             onSaveNotes={(notes) => commit(updateDeviceNotes(db, device.id, notes))}
             onAddMaintenance={(input) => {
-              const result = addMaintenance(db, { ...input, deviceId: device.id })
+              const result = addMaintenance(db, { ...input, deviceId: device.id, createdBy: user.name })
               if (!result.ok) return result.error
               commit(result.db)
               setNotice({ tone: 'ok', text: 'Wartung hinzugefügt.' })
@@ -287,8 +285,8 @@ export default function App() {
                 action: () => commit(deleteGroup(db, group.id)),
               })
             }}
-            onAddDevice={(groupId, name) => {
-              const result = addDevice(db, groupId, name)
+            onAddDevice={(groupId, name, number) => {
+              const result = addDevice(db, groupId, name, number)
               if (!result.ok) return result.error
               commit(result.db)
               return null

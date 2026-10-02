@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createSeedDb } from '../src/model.js'
+import { createSeedDb, formatISODate, prepareDeviceNumbers } from '../src/model.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
 const SCHEMA = `
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS devices (
   name TEXT NOT NULL,
   notes TEXT NOT NULL DEFAULT '',
   position INTEGER NOT NULL,
+  number INTEGER,
   FOREIGN KEY (group_id) REFERENCES groups(id)
 );
 CREATE TABLE IF NOT EXISTS maintenances (
@@ -25,6 +26,11 @@ CREATE TABLE IF NOT EXISTS maintenances (
   due_date TEXT NOT NULL,
   interval_weeks INTEGER NOT NULL,
   description TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'offen',
+  performed_by TEXT NOT NULL DEFAULT '',
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (device_id) REFERENCES devices(id)
 );
 CREATE TABLE IF NOT EXISTS documentation (
@@ -84,14 +90,65 @@ export function isState(value) {
   )
 }
 
+function tableColumns(database, table) {
+  return new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((column) => column.name))
+}
+
+function ensureColumn(database, table, name, definition) {
+  if (!tableColumns(database, table).has(name)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`)
+  }
+}
+
+function migrate(database) {
+  ensureColumn(database, 'devices', 'number', 'INTEGER')
+  const rows = database.prepare('SELECT id, number FROM devices ORDER BY position, id').all()
+  const used = new Set()
+  for (const row of rows) {
+    const number = Number(row.number)
+    if (Number.isInteger(number) && number > 0) used.add(number)
+  }
+  const updateNumber = database.prepare('UPDATE devices SET number = ? WHERE id = ?')
+  for (const row of rows) {
+    const number = Number(row.number)
+    if (Number.isInteger(number) && number > 0) continue
+    let candidate = 1
+    while (used.has(candidate)) candidate += 1
+    updateNumber.run(candidate, row.id)
+    used.add(candidate)
+  }
+  database.exec('CREATE UNIQUE INDEX IF NOT EXISTS devices_number_unique ON devices(number)')
+
+  ensureColumn(database, 'maintenances', 'created_by', "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(database, 'maintenances', 'status', "TEXT NOT NULL DEFAULT 'offen'")
+  ensureColumn(database, 'maintenances', 'performed_by', "TEXT NOT NULL DEFAULT ''")
+  ensureColumn(database, 'maintenances', 'completed_at', 'TEXT')
+  ensureColumn(database, 'maintenances', 'created_at', "TEXT NOT NULL DEFAULT ''")
+  const missingCreated = database
+    .prepare(
+      `SELECT id, rowid AS rowid FROM maintenances
+       WHERE created_at IS NULL OR created_at = ''
+       ORDER BY rowid`,
+    )
+    .all()
+  const updateCreated = database.prepare('UPDATE maintenances SET created_at = ? WHERE id = ?')
+  for (const row of missingCreated) {
+    updateCreated.run(new Date(Date.UTC(2020, 0, 1, 0, 0, Number(row.rowid))).toISOString(), row.id)
+  }
+  database.prepare(`UPDATE maintenances SET status = 'offen' WHERE status IS NULL OR status = ''`).run()
+  database.prepare(`UPDATE maintenances SET performed_by = '' WHERE performed_by IS NULL`).run()
+  database.prepare(`UPDATE maintenances SET created_by = '' WHERE created_by IS NULL`).run()
+}
+
 export function openDatabase(filePath) {
   mkdirSync(path.dirname(filePath), { recursive: true })
   const database = new DatabaseSync(filePath)
   database.exec('PRAGMA foreign_keys = ON')
   database.exec(SCHEMA)
+  migrate(database)
   const seeded = database.prepare(`SELECT value FROM meta WHERE key = 'seeded'`).get()
   if (!seeded) {
-    writeState(database, createSeedDb())
+    seedState(database, createSeedDb())
     database.prepare(`INSERT INTO meta (key, value) VALUES ('seeded', '1')`).run()
   }
   const userCount = database.prepare('SELECT COUNT(*) AS count FROM users').get()
@@ -285,17 +342,28 @@ export function readState(database) {
   const groups = database.prepare('SELECT id, name FROM groups ORDER BY position, id').all()
   const devices = database
     .prepare(
-      'SELECT id, group_id AS groupId, name, notes FROM devices ORDER BY position, id',
+      'SELECT id, group_id AS groupId, name, notes, number FROM devices ORDER BY position, id',
     )
     .all()
+    .map((device) => ({ ...device, number: Number(device.number) }))
   const maintenances = database
     .prepare(
       `SELECT id, device_id AS deviceId, due_date AS dueDate,
-              interval_weeks AS intervalWeeks, description
+              interval_weeks AS intervalWeeks, description,
+              created_by AS createdBy, status, performed_by AS performedBy,
+              completed_at AS completedAt, created_at AS createdAt
        FROM maintenances ORDER BY due_date, id`,
     )
     .all()
-    .map((item) => ({ ...item, intervalWeeks: Number(item.intervalWeeks) }))
+    .map((item) => ({
+      ...item,
+      intervalWeeks: Number(item.intervalWeeks),
+      createdBy: item.createdBy || '',
+      status: item.status === 'erledigt' ? 'erledigt' : 'offen',
+      performedBy: item.performedBy || '',
+      completedAt: item.completedAt || null,
+      createdAt: item.createdAt || '',
+    }))
   const documentation = database
     .prepare(
       `SELECT id, device_id AS deviceId, maintenance_id AS maintenanceId, date,
@@ -314,20 +382,90 @@ export function readState(database) {
   }
 }
 
-export function writeState(database, state) {
-  if (!isState(state)) {
-    throw new Error('Ungültige Daten')
-  }
+function completionDate(value) {
+  const text = String(value ?? '')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  return formatISODate(new Date())
+}
 
+function trustedMaintenance(item) {
+  const done = item.status === 'erledigt'
+  return {
+    id: String(item.id),
+    deviceId: String(item.deviceId),
+    dueDate: String(item.dueDate),
+    intervalWeeks: Number(item.intervalWeeks),
+    description: String(item.description ?? '').trim(),
+    createdBy: String(item.createdBy ?? ''),
+    status: done ? 'erledigt' : 'offen',
+    performedBy: done ? String(item.performedBy ?? '') : '',
+    completedAt: done && item.completedAt ? String(item.completedAt).slice(0, 10) : null,
+    createdAt: String(item.createdAt || new Date().toISOString()),
+  }
+}
+
+function mergeMaintenances(incoming, previous, actor) {
+  const previousById = new Map(previous.map((item) => [String(item.id), item]))
+  return incoming.map((item) => {
+    const prev = previousById.get(String(item.id))
+    if (!prev) {
+      if (!actor || actor.role !== 'super') throw new Error('Keine Berechtigung')
+      return {
+        id: String(item.id),
+        deviceId: String(item.deviceId),
+        dueDate: String(item.dueDate),
+        intervalWeeks: Number(item.intervalWeeks),
+        description: String(item.description ?? '').trim(),
+        createdBy: actor.name,
+        status: 'offen',
+        performedBy: '',
+        completedAt: null,
+        createdAt: new Date().toISOString(),
+      }
+    }
+    const wasDone = prev.status === 'erledigt'
+    if (!wasDone && item.status === 'erledigt') {
+      if (!actor) throw new Error('Keine Berechtigung')
+      return {
+        id: prev.id,
+        deviceId: prev.deviceId,
+        dueDate: prev.dueDate,
+        intervalWeeks: prev.intervalWeeks,
+        description: prev.description,
+        createdBy: prev.createdBy,
+        status: 'erledigt',
+        performedBy: actor.name,
+        completedAt: completionDate(item.completedAt),
+        createdAt: prev.createdAt,
+      }
+    }
+    return {
+      id: prev.id,
+      deviceId: String(item.deviceId),
+      dueDate: wasDone ? prev.dueDate : String(item.dueDate),
+      intervalWeeks: wasDone ? prev.intervalWeeks : Number(item.intervalWeeks),
+      description: wasDone ? prev.description : String(item.description ?? '').trim(),
+      createdBy: prev.createdBy,
+      status: wasDone ? 'erledigt' : 'offen',
+      performedBy: wasDone ? prev.performedBy : '',
+      completedAt: wasDone ? prev.completedAt : null,
+      createdAt: prev.createdAt,
+    }
+  })
+}
+
+function persistState(database, state) {
   const insertGroup = database.prepare(
     'INSERT INTO groups (id, name, position) VALUES (?, ?, ?)',
   )
   const insertDevice = database.prepare(
-    'INSERT INTO devices (id, group_id, name, notes, position) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO devices (id, group_id, name, notes, position, number) VALUES (?, ?, ?, ?, ?, ?)',
   )
   const insertMaintenance = database.prepare(
-    `INSERT INTO maintenances (id, device_id, due_date, interval_weeks, description)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO maintenances (
+       id, device_id, due_date, interval_weeks, description,
+       created_by, status, performed_by, completed_at, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const insertDocumentation = database.prepare(
     `INSERT INTO documentation
@@ -357,6 +495,7 @@ export function writeState(database, state) {
         String(device.name ?? '').trim(),
         String(device.notes ?? ''),
         index,
+        Number(device.number),
       )
     })
     for (const item of state.maintenances) {
@@ -366,6 +505,11 @@ export function writeState(database, state) {
         String(item.dueDate),
         Number(item.intervalWeeks),
         String(item.description ?? '').trim(),
+        String(item.createdBy ?? ''),
+        item.status === 'erledigt' ? 'erledigt' : 'offen',
+        String(item.performedBy ?? ''),
+        item.completedAt ? String(item.completedAt) : null,
+        String(item.createdAt ?? ''),
       )
     }
     for (const entry of state.documentation) {
@@ -385,4 +529,23 @@ export function writeState(database, state) {
     database.exec('ROLLBACK')
     throw error
   }
+}
+
+function seedState(database, state) {
+  if (!isState(state)) throw new Error('Ungültige Daten')
+  persistState(database, {
+    ...state,
+    devices: prepareDeviceNumbers(state.devices),
+    maintenances: state.maintenances.map(trustedMaintenance),
+  })
+}
+
+export function writeState(database, state, actor = null) {
+  if (!isState(state)) throw new Error('Ungültige Daten')
+  const previous = readState(database)
+  persistState(database, {
+    ...state,
+    devices: prepareDeviceNumbers(state.devices),
+    maintenances: mergeMaintenances(state.maintenances, previous.maintenances, actor),
+  })
 }

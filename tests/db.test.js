@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import { isState, openDatabase, readState, writeState } from '../server/db.js'
 import { startServer } from '../server/index.js'
@@ -17,6 +18,9 @@ test('a new database stores the seed in SQLite', () => {
     assert.equal(isState(state), true)
     assert.equal(state.groups.length, 3)
     assert.ok(state.devices.some((device) => device.name.includes('Flipper')))
+    assert.equal(state.devices.find((device) => device.id === 'd-flipper').number, 1)
+    assert.equal(state.devices.find((device) => device.id === 'd-klima').number, 5)
+    assert.equal(state.maintenances.every((item) => item.status === 'offen' && item.createdBy === 'Jonas Keller'), true)
     assert.equal(state.maintenances[0].intervalWeeks > 0, true)
     database.close()
   } finally {
@@ -31,14 +35,23 @@ test('maintenance changes survive a round trip through SQLite', () => {
     const database = openDatabase(file)
     const before = readState(database)
     const user = { name: 'Anna Berger', role: 'standard' }
+    const beforeDue = before.maintenances.find((item) => item.id === 'm-klima').dueDate
     const result = markPerformed(before, 'm-klima', user, '2026-10-01')
-    writeState(database, result.db)
+    const hacked = structuredClone(result.db)
+    const spoofed = hacked.maintenances.find((item) => item.id === 'm-klima')
+    spoofed.performedBy = 'Hacker'
+    spoofed.dueDate = '2030-01-01'
+    writeState(database, hacked, user)
     const after = readState(database)
-    assert.equal(after.nextDocNumber, before.nextDocNumber + 1)
-    assert.equal(after.documentation[0].userName, 'Anna Berger')
-    assert.equal(after.documentation[0].number, 2)
+    assert.equal(after.nextDocNumber, before.nextDocNumber)
+    assert.equal(after.documentation.length, before.documentation.length)
+    assert.equal(after.documentation[0].userName, 'Jonas Keller')
     const klima = after.maintenances.find((item) => item.id === 'm-klima')
-    assert.equal(klima.dueDate, '2027-01-21')
+    assert.equal(klima.status, 'erledigt')
+    assert.equal(klima.performedBy, 'Anna Berger')
+    assert.equal(klima.completedAt, '2026-10-01')
+    assert.equal(klima.dueDate, beforeDue)
+    assert.equal(after.devices.find((device) => device.id === 'd-flipper').number, 1)
     database.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -63,6 +76,17 @@ test('the HTTP API reads and writes the database', async () => {
     const again = await fetch(`http://127.0.0.1:${port}/api/state`)
     const next = await again.json()
     assert.equal(next.groups.at(-1).name, 'Lager')
+    assert.equal(next.devices.find((device) => device.id === 'd-flipper').number, 1)
+
+    const duplicate = structuredClone(next)
+    duplicate.devices[1].number = duplicate.devices[0].number
+    const duplicateResponse = await fetch(`http://127.0.0.1:${port}/api/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(duplicate),
+    })
+    assert.equal(duplicateResponse.status, 400)
+    assert.equal((await duplicateResponse.json()).error, 'Nummer schon vergeben.')
 
     const rejected = await fetch(`http://127.0.0.1:${port}/api/state`, {
       method: 'PUT',
@@ -322,6 +346,174 @@ test('super user can manage accounts and the last super stays', async () => {
     })
     assert.equal(demoteLast.status, 400)
     assert.match((await demoteLast.json()).error, /letzte Super Benutzer/)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('startup assigns stable device numbers in position order', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'legacy.sqlite')
+  try {
+    const database = new DatabaseSync(file)
+    database.exec(`
+      CREATE TABLE groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        position INTEGER NOT NULL
+      );
+      CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        group_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        position INTEGER NOT NULL,
+        number INTEGER
+      );
+      CREATE TABLE maintenances (
+        id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        interval_weeks INTEGER NOT NULL,
+        description TEXT NOT NULL
+      );
+      CREATE TABLE documentation (
+        id TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        maintenance_id TEXT,
+        date TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        user_name TEXT NOT NULL,
+        description TEXT NOT NULL
+      );
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO meta (key, value) VALUES ('seeded', '1');
+      INSERT INTO meta (key, value) VALUES ('next_doc_number', '3');
+      INSERT INTO groups (id, name, position) VALUES ('g1', 'Halle', 0);
+      INSERT INTO devices (id, group_id, name, notes, position, number) VALUES
+        ('d-c', 'g1', 'C', '', 2, NULL),
+        ('d-a', 'g1', 'A', '', 0, 1),
+        ('d-b', 'g1', 'B', '', 1, 4);
+      INSERT INTO maintenances (id, device_id, due_date, interval_weeks, description)
+        VALUES ('m1', 'd-a', '2026-10-01', 4, 'Prüfen');
+      INSERT INTO documentation (id, device_id, maintenance_id, date, number, user_name, description)
+        VALUES ('doc-old', 'd-a', 'm1', '2026-01-01', 1, 'Jonas Keller', 'Prüfen');
+    `)
+    database.close()
+
+    const opened = openDatabase(file)
+    const once = readState(opened)
+    const numbers = Object.fromEntries(once.devices.map((device) => [device.id, device.number]))
+    assert.deepEqual(numbers, { 'd-a': 1, 'd-b': 4, 'd-c': 2 })
+    const maintenance = once.maintenances.find((item) => item.id === 'm1')
+    assert.equal(maintenance.status, 'offen')
+    assert.equal(maintenance.performedBy, '')
+    assert.equal(maintenance.createdBy, '')
+    assert.ok(maintenance.createdAt)
+    assert.equal(once.documentation[0].userName, 'Jonas Keller')
+    opened.close()
+
+    const again = openDatabase(file)
+    const twice = readState(again)
+    assert.deepEqual(
+      twice.devices.map((device) => [device.id, device.number]),
+      once.devices.map((device) => [device.id, device.number]),
+    )
+    again.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Erfasser and Durchgeführt durch come from the session', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const anna = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'anna', password: 'wartung' }),
+    }).then((response) => response.json())
+
+    const state = await fetch(`${base}/api/state`).then((response) => response.json())
+    const originalDue = state.maintenances.find((item) => item.id === 'm-klima').dueDate
+    state.maintenances.push({
+      id: 'm-new',
+      deviceId: 'd-vr',
+      dueDate: '2026-12-01',
+      intervalWeeks: 3,
+      description: 'Kabel prüfen',
+      createdBy: 'Hacker',
+      status: 'erledigt',
+      performedBy: 'Hacker',
+      completedAt: '2026-10-02',
+    })
+    const createdResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(state),
+    })
+    assert.equal(createdResponse.status, 200)
+    const createdState = await createdResponse.json()
+    const created = createdState.maintenances.find((item) => item.id === 'm-new')
+    assert.equal(created.status, 'offen')
+    assert.equal(created.createdBy, 'Jonas Keller')
+    assert.equal(created.performedBy, '')
+    assert.equal(created.completedAt, null)
+
+    const blocked = structuredClone(createdState)
+    blocked.maintenances.push({
+      id: 'm-anna',
+      deviceId: 'd-vr',
+      dueDate: '2026-12-02',
+      intervalWeeks: 1,
+      description: 'Nicht erlaubt',
+      createdBy: 'Anna Berger',
+      status: 'offen',
+    })
+    const blockedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(blocked),
+    })
+    assert.equal(blockedResponse.status, 403)
+
+    const done = structuredClone(createdState)
+    const klima = done.maintenances.find((item) => item.id === 'm-klima')
+    klima.status = 'erledigt'
+    klima.performedBy = 'Hacker'
+    klima.completedAt = '2026-10-02'
+    klima.dueDate = '2031-01-01'
+    const anonymous = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(done),
+    })
+    assert.equal(anonymous.status, 403)
+
+    const performed = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(done),
+    })
+    assert.equal(performed.status, 200)
+    const after = await performed.json()
+    const finished = after.maintenances.find((item) => item.id === 'm-klima')
+    assert.equal(finished.status, 'erledigt')
+    assert.equal(finished.performedBy, 'Anna Berger')
+    assert.equal(finished.completedAt, '2026-10-02')
+    assert.equal(finished.dueDate, originalDue)
+    assert.equal(finished.createdBy, 'Jonas Keller')
+    assert.equal(after.devices.find((device) => device.id === 'd-flipper').number, 1)
   } finally {
     await new Promise((resolve) => server.close(resolve))
     rmSync(dir, { recursive: true, force: true })

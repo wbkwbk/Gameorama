@@ -171,14 +171,14 @@ export function startServer({ port = 3001, dbPath }) {
           send(response, 400, { error: 'Ungültige Daten' })
           return
         }
-        writeState(database, parsed)
+        writeState(database, parsed, sessionUser(database, tokenFrom(request)))
         send(response, 200, readState(database))
         return
       }
       send(response, 404, { error: 'Nicht gefunden' })
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : 'Ungültige Daten'
-      const status = message === 'Benutzer nicht gefunden' ? 404 : 400
+      const status = message === 'Benutzer nicht gefunden' ? 404 : message === 'Keine Berechtigung' ? 403 : 400
       send(response, status, { error: message })
     }
   })

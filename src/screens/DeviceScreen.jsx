@@ -4,6 +4,7 @@ import {
   deviceStatus,
   formatDisplayDate,
   maintenanceStatus,
+  sortedDocumentation,
   todayISO,
 } from '../model.js'
 
@@ -40,7 +41,8 @@ export default function DeviceScreen({
     .filter((item) => item.deviceId === device.id)
     .slice()
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-  const documentation = db.documentation.filter((item) => item.deviceId === device.id)
+  const documentation = sortedDocumentation(db.maintenances, device.id)
+  const legacy = db.documentation.filter((item) => item.deviceId === device.id)
 
   function saveNotes(event) {
     event.preventDefault()
@@ -69,7 +71,10 @@ export default function DeviceScreen({
 
       <header className="device-title">
         <div>
-          <h1>{device.name}</h1>
+          <h1>
+            <span className="device-title-name">{device.name}</span>
+            <span className="device-number">Nr. {device.number}</span>
+          </h1>
           <p className={`status-line level-${status.level}`}>
             Status: {status.label}
             {status.dueDate ? ` · ${formatDisplayDate(status.dueDate)}` : ''}
@@ -90,31 +95,41 @@ export default function DeviceScreen({
           <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="maint-table">
               <thead>
                 <tr>
-                  <th>Datum fällig</th>
+                  <th>Fällig am</th>
                   <th>Intervall in Wochen</th>
                   <th>Wartungsbeschreibung</th>
-                  <th>Durchgeführt</th>
+                  <th>Erfasser der Wartung</th>
+                  <th>Wartungstatus</th>
+                  <th>Wartung durchgeführt durch</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {maintenances.map((item) => {
-                  const itemStatus = maintenanceStatus(item, today)
+                  const open = item.status !== 'erledigt'
+                  const itemStatus = open ? maintenanceStatus(item, today) : null
                   return (
-                    <tr key={item.id} className={`level-${itemStatus.level}`}>
-                      <td>
-                        <span className={`pill level-${itemStatus.level}`}>{itemStatus.label}</span>
-                        <span className="date-line">{formatDisplayDate(item.dueDate)}</span>
-                      </td>
+                    <tr key={item.id} className={itemStatus ? `level-${itemStatus.level}` : undefined}>
+                      <td>{formatDisplayDate(item.dueDate)}</td>
                       <td>{item.intervalWeeks}</td>
                       <td>{item.description}</td>
+                      <td>{item.createdBy}</td>
                       <td>
-                        <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
-                          <span>Durchgeführt</span>
-                          <small>{user.name}</small>
-                        </button>
+                        <span className={`maint-status ${open ? 'offen' : 'erledigt'}`}>
+                          {open ? 'offen' : 'erledigt'}
+                        </span>
+                      </td>
+                      <td>{item.performedBy}</td>
+                      <td>
+                        {open && (
+                          <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
+                            <span>Durchgeführt</span>
+                            <small>{user.name}</small>
+                          </button>
+                        )}
                         {isSuper && (
                           <button
                             type="button"
@@ -162,7 +177,7 @@ export default function DeviceScreen({
           <h2>Wartung hinzufügen / löschen</h2>
           <form className="maintenance-form" onSubmit={submitMaintenance}>
             <label>
-              Datum fällig
+              Fällig am
               <input
                 type="date"
                 value={form.dueDate}
@@ -202,32 +217,69 @@ export default function DeviceScreen({
 
       <section>
         <h2>Dokumentationsbereich</h2>
-        <p className="muted">Wird gefüllt, wenn eine Wartung als durchgeführt markiert wird.</p>
+        <p className="muted">Alle Wartungen dieses Geräts, die neueste zuerst.</p>
         {documentation.length === 0 ? (
-          <p className="empty">Noch keine Durchführung dokumentiert.</p>
+          <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="maint-table">
               <thead>
                 <tr>
-                  <th>Datum</th>
-                  <th>Wartungsnummer</th>
-                  <th>Benutzer Name</th>
-                  <th>Wartung</th>
+                  <th>Fällig am</th>
+                  <th>Intervall in Wochen</th>
+                  <th>Wartungsbeschreibung</th>
+                  <th>Erfasser der Wartung</th>
+                  <th>Wartungstatus</th>
+                  <th>Wartung durchgeführt durch</th>
+                  <th>Durchgeführt am</th>
                 </tr>
               </thead>
               <tbody>
-                {documentation.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>{formatDisplayDate(entry.date)}</td>
-                    <td>{entry.number}</td>
-                    <td>{entry.userName}</td>
-                    <td>{entry.description}</td>
+                {documentation.map((item) => (
+                  <tr key={item.id}>
+                    <td>{formatDisplayDate(item.dueDate)}</td>
+                    <td>{item.intervalWeeks}</td>
+                    <td>{item.description}</td>
+                    <td>{item.createdBy}</td>
+                    <td>
+                      <span className={`maint-status ${item.status === 'erledigt' ? 'erledigt' : 'offen'}`}>
+                        {item.status === 'erledigt' ? 'erledigt' : 'offen'}
+                      </span>
+                    </td>
+                    <td>{item.performedBy}</td>
+                    <td>{item.completedAt ? formatDisplayDate(item.completedAt) : ''}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {legacy.length > 0 && (
+          <>
+            <h3 className="legacy-title">Bisherige Einträge</h3>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Datum</th>
+                    <th>Wartungsnummer</th>
+                    <th>Benutzer Name</th>
+                    <th>Wartung</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {legacy.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{formatDisplayDate(entry.date)}</td>
+                      <td>{entry.number}</td>
+                      <td>{entry.userName}</td>
+                      <td>{entry.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>

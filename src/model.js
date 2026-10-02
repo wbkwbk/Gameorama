@@ -64,7 +64,9 @@ export function maintenanceStatus(maintenance, today) {
 }
 
 export function deviceStatus(deviceId, maintenances, today) {
-  const items = maintenances.filter((item) => item.deviceId === deviceId)
+  const items = maintenances.filter(
+    (item) => item.deviceId === deviceId && item.status !== 'erledigt',
+  )
   if (items.length === 0) {
     return { level: 'none', label: LEVEL_LABEL.none, dueDate: null, description: null }
   }
@@ -93,6 +95,53 @@ function uid() {
   return crypto.randomUUID()
 }
 
+export function nextFreeDeviceNumber(devices) {
+  const used = new Set()
+  for (const device of devices) {
+    const number = Number(device.number)
+    if (Number.isInteger(number) && number > 0) used.add(number)
+  }
+  let candidate = 1
+  while (used.has(candidate)) candidate += 1
+  return candidate
+}
+
+export function prepareDeviceNumbers(devices) {
+  const used = new Set()
+  return devices.map((device) => {
+    const missing = device.number == null || device.number === ''
+    const number = Number(device.number)
+    if (!missing) {
+      if (!Number.isInteger(number) || number < 1) {
+        throw new Error('Bitte eine gültige Gerätenummer angeben.')
+      }
+      if (used.has(number)) throw new Error('Nummer schon vergeben.')
+      used.add(number)
+      return { ...device, number }
+    }
+    let candidate = 1
+    while (used.has(candidate)) candidate += 1
+    used.add(candidate)
+    return { ...device, number: candidate }
+  })
+}
+
+export function documentationTime(item) {
+  if (item.completedAt) return `${String(item.completedAt).slice(0, 10)}T23:59:59`
+  return String(item.createdAt || '')
+}
+
+export function sortedDocumentation(maintenances, deviceId) {
+  return maintenances
+    .filter((item) => item.deviceId === deviceId)
+    .slice()
+    .sort((a, b) => {
+      const byTime = documentationTime(b).localeCompare(documentationTime(a))
+      if (byTime !== 0) return byTime
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
+    })
+}
+
 export function createSeedDb(now = new Date()) {
   const today = todayISO(now)
   const groups = [
@@ -104,77 +153,92 @@ export function createSeedDb(now = new Date()) {
     {
       id: 'd-flipper',
       groupId: 'g-arcade',
+      number: 1,
       name: 'Flipper «Medieval Madness»',
       notes: 'Handbuch im Schrank A.\nErsatzteile: https://example.com/flipper-teile',
     },
     {
       id: 'd-dance',
       groupId: 'g-arcade',
+      number: 2,
       name: 'Tanzautomat «StepX»',
       notes: 'Sensor-Matte erst im März ersetzt.',
     },
     {
       id: 'd-race',
       groupId: 'g-arcade',
+      number: 3,
       name: 'Rennsimulator «Grid»',
       notes: 'Kalibrierungsanleitung liegt in der Schublade unter dem Sitz.',
     },
     {
       id: 'd-vr',
       groupId: 'g-vr',
+      number: 4,
       name: 'VR-Station «Quest-Raum»',
       notes: 'Brillen nach jeder Schicht desinfizieren.\nhttps://example.com/vr-reinigung',
     },
     {
       id: 'd-klima',
       groupId: 'g-haus',
+      number: 5,
       name: 'Klimaanlage Spielhalle',
       notes: 'Filtertyp: F7. Lieferant Meier Gebäudetechnik.',
     },
   ]
+  function openMaintenance(fields, ageMs) {
+    return {
+      ...fields,
+      createdBy: 'Jonas Keller',
+      status: 'offen',
+      performedBy: '',
+      completedAt: null,
+      createdAt: new Date(now.getTime() - ageMs).toISOString(),
+    }
+  }
   const maintenances = [
-    {
+    openMaintenance({
       id: 'm-flipper-oil',
       deviceId: 'd-flipper',
       dueDate: addDays(today, -10),
       intervalWeeks: 12,
       description: 'Mechanik ölen und Kugeln prüfen',
-    },
-    {
+    }, 6 * 86400000),
+    openMaintenance({
       id: 'm-flipper-clean',
       deviceId: 'd-flipper',
       dueDate: addDays(today, 21),
       intervalWeeks: 8,
       description: 'Spielfeld reinigen',
-    },
-    {
+    }, 5 * 86400000),
+    openMaintenance({
       id: 'm-dance',
       deviceId: 'd-dance',
       dueDate: addDays(today, 3),
       intervalWeeks: 6,
       description: 'Riemen und Sensoren prüfen',
-    },
-    {
+    }, 4 * 86400000),
+    openMaintenance({
       id: 'm-race',
       deviceId: 'd-race',
       dueDate: addDays(today, 28),
       intervalWeeks: 24,
       description: 'Software-Update und Lenkrad kalibrieren',
-    },
-    {
+    }, 3 * 86400000),
+    openMaintenance({
       id: 'm-vr',
       deviceId: 'd-vr',
       dueDate: addDays(today, 6),
       intervalWeeks: 4,
       description: 'Linsen reinigen und Tracking prüfen',
-    },
-    {
+    }, 2 * 86400000),
+    openMaintenance({
       id: 'm-klima',
       deviceId: 'd-klima',
       dueDate: addDays(today, -2),
       intervalWeeks: 16,
       description: 'Filter wechseln',
-    },
+    }, 86400000),
   ]
   const documentation = [
     {
@@ -200,29 +264,26 @@ export function createSeedDb(now = new Date()) {
 export function markPerformed(db, maintenanceId, user, today) {
   const maintenance = db.maintenances.find((item) => item.id === maintenanceId)
   if (!maintenance) return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
-
-  const entry = {
-    id: uid(),
-    deviceId: maintenance.deviceId,
-    maintenanceId: maintenance.id,
-    date: today,
-    number: db.nextDocNumber,
-    userName: user.name,
-    description: maintenance.description,
+  if (maintenance.status === 'erledigt') {
+    return { ok: false, error: 'Diese Wartung ist bereits erledigt.' }
   }
+  const name = String(user?.name ?? '').trim()
+  if (!name) return { ok: false, error: 'Der Benutzer fehlt.' }
 
   return {
     ok: true,
-    entry,
     db: {
       ...db,
-      nextDocNumber: db.nextDocNumber + 1,
       maintenances: db.maintenances.map((item) =>
         item.id === maintenance.id
-          ? { ...item, dueDate: addWeeks(today, item.intervalWeeks) }
+          ? {
+              ...item,
+              status: 'erledigt',
+              performedBy: name,
+              completedAt: today,
+            }
           : item,
       ),
-      documentation: [entry, ...db.documentation],
     },
   }
 }
@@ -252,17 +313,24 @@ export function deleteGroup(db, groupId) {
   }
 }
 
-export function addDevice(db, groupId, name) {
+export function addDevice(db, groupId, name, number) {
   const trimmed = name.trim()
+  const parsed = Number(number)
   if (!trimmed) return { ok: false, error: 'Bitte einen Gerätenamen angeben.' }
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return { ok: false, error: 'Bitte eine gültige Gerätenummer angeben.' }
+  }
   if (!db.groups.some((group) => group.id === groupId)) {
     return { ok: false, error: 'Die Gruppe gibt es nicht mehr.' }
+  }
+  if (db.devices.some((device) => device.number === parsed)) {
+    return { ok: false, error: 'Nummer schon vergeben.' }
   }
   return {
     ok: true,
     db: {
       ...db,
-      devices: [...db.devices, { id: uid(), groupId, name: trimmed, notes: '' }],
+      devices: [...db.devices, { id: uid(), groupId, name: trimmed, notes: '', number: parsed }],
     },
   }
 }
@@ -285,9 +353,10 @@ export function updateDeviceNotes(db, deviceId, notes) {
   }
 }
 
-export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description }) {
+export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description, createdBy, createdAt }) {
   const text = description.trim()
   const interval = Number(intervalWeeks)
+  const creator = String(createdBy ?? '').trim()
   if (!db.devices.some((device) => device.id === deviceId)) {
     return { ok: false, error: 'Das Gerät gibt es nicht mehr.' }
   }
@@ -296,6 +365,7 @@ export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, descripti
   if (!Number.isInteger(interval) || interval < 1) {
     return { ok: false, error: 'Das Intervall muss mindestens 1 Woche sein.' }
   }
+  if (!creator) return { ok: false, error: 'Der Erfasser der Wartung fehlt.' }
   return {
     ok: true,
     db: {
@@ -308,6 +378,11 @@ export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, descripti
           dueDate,
           intervalWeeks: interval,
           description: text,
+          createdBy: creator,
+          status: 'offen',
+          performedBy: '',
+          completedAt: null,
+          createdAt: createdAt || new Date().toISOString(),
         },
       ],
     },
