@@ -16,7 +16,7 @@ function initialFields(maintenance) {
   }
 }
 
-export default function MaintenanceEditScreen({ device, maintenance, token, onCancel, onSave }) {
+export default function MaintenanceEditScreen({ device, maintenance, token, onCancel, onOverview, onSave }) {
   const [fields, setFields] = useState(() => initialFields(maintenance))
   const [documents, setDocuments] = useState([])
   const [error, setError] = useState(null)
@@ -68,6 +68,9 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
 
   return (
     <div className="device-page maintenance-edit">
+      <button type="button" className="btn secondary device-back" onClick={onOverview}>
+        ← Zurück zur Übersicht
+      </button>
       <header className="device-title">
         <div>
           <h1>

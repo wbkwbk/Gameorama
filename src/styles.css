@@ -74,6 +74,10 @@ h1, .brand-mark, .login-hero h1 {
 .topbar .btn.ghost { color: #f7f3ea; }
 .btn.danger { background: var(--overdue); color: white; }
 .btn.tiny { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .btn:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, .device-open:focus-visible {
   outline: 3px solid #f0a202;
   outline-offset: 2px;
@@ -539,6 +543,10 @@ tr.level-ok td { background: #f7fbf8; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.2rem; }
 
 .users-page h1, .groups-page h1 { font-size: 2.4rem; letter-spacing: -0.03em; }
+.groups-page > .btn.device-back,
+.users-page > .btn.device-back {
+  margin-bottom: 0.8rem;
+}
 .rename-list, .assign-list { display: grid; gap: 0.75rem; margin-top: 0.8rem; }
 .device-list-frame > .rename-list,
 .device-list-frame > .assign-list {

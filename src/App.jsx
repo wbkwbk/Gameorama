@@ -7,6 +7,8 @@ import {
   deleteDevice,
   deleteGroup,
   deleteMaintenance,
+  deviceDeleteBlockReason,
+  groupDeleteBlockReason,
   markPerformed,
   moveDevice,
   moveMaintenance,
@@ -236,6 +238,10 @@ export default function App() {
               setNotice(null)
               setRoute({ name: 'device', deviceId: device.id })
             }}
+            onOverview={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
             onSave={async (fields) => {
               const next = await updateMaintenanceRequest(user.token, editing.id, fields)
               setDb(next)
@@ -348,12 +354,18 @@ export default function App() {
               })
             }}
             onDeleteDevice={() => {
+              if (deviceDeleteBlockReason(db, device.id)) return
               askConfirm({
                 title: 'Gerät löschen',
                 message: `«${device.name}» inklusive Wartungen und Dokumentation wird gelöscht.`,
                 confirmLabel: 'Gerät löschen',
                 action: () => {
-                  commit(deleteDevice(db, device.id))
+                  const result = deleteDevice(db, device.id)
+                  if (!result.ok) {
+                    setNotice({ tone: 'error', text: result.error })
+                    return
+                  }
+                  commit(result.db)
                   setRoute({ name: 'overview' })
                   setNotice({ tone: 'ok', text: `${device.name} wurde gelöscht.` })
                 },
@@ -414,15 +426,19 @@ export default function App() {
               return null
             }}
             onDeleteGroup={(group) => {
-              const count = db.devices.filter((item) => item.groupId === group.id).length
+              if (groupDeleteBlockReason(db, group.id)) return
               askConfirm({
                 title: 'Gruppe löschen',
-                message:
-                  count === 0
-                    ? `Gruppe «${group.name}» wird gelöscht.`
-                    : `Gruppe «${group.name}» und ${count} Gerät${count === 1 ? '' : 'e'} werden gelöscht.`,
+                message: `Gruppe «${group.name}» wird gelöscht.`,
                 confirmLabel: 'Löschen',
-                action: () => commit(deleteGroup(db, group.id)),
+                action: () => {
+                  const result = deleteGroup(db, group.id)
+                  if (!result.ok) {
+                    setNotice({ tone: 'error', text: result.error })
+                    return
+                  }
+                  commit(result.db)
+                },
               })
             }}
             onAddDevice={(groupId, name, number) => {
@@ -432,11 +448,19 @@ export default function App() {
               return null
             }}
             onDeleteDevice={(deviceItem) => {
+              if (deviceDeleteBlockReason(db, deviceItem.id)) return
               askConfirm({
                 title: 'Gerät löschen',
                 message: `«${deviceItem.name}» inklusive Wartungen und Dokumentation wird gelöscht.`,
                 confirmLabel: 'Gerät löschen',
-                action: () => commit(deleteDevice(db, deviceItem.id)),
+                action: () => {
+                  const result = deleteDevice(db, deviceItem.id)
+                  if (!result.ok) {
+                    setNotice({ tone: 'error', text: result.error })
+                    return
+                  }
+                  commit(result.db)
+                },
               })
             }}
           />

@@ -201,8 +201,8 @@ export default function UsersScreen({
 
   return (
     <div className="users-page">
-      <button type="button" className="text-link" onClick={onBack}>
-        ← Übersicht
+      <button type="button" className="btn secondary device-back" onClick={onBack}>
+        ← Zurück zur Übersicht
       </button>
       <header className="board-head">
         <div>

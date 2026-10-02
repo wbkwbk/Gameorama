@@ -1193,3 +1193,171 @@ test('deleting an erledigt maintenance leaves the open copy in place', async () 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('groups and devices can only be deleted when nothing still belongs to them', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server, database } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const state = await fetch(`${base}/api/state`).then((response) => response.json())
+
+    const occupied = structuredClone(state)
+    const arcadeDeviceIds = new Set(
+      occupied.devices.filter((device) => device.groupId === 'g-arcade').map((device) => device.id),
+    )
+    occupied.groups = occupied.groups.filter((group) => group.id !== 'g-arcade')
+    occupied.devices = occupied.devices.filter((device) => device.groupId !== 'g-arcade')
+    occupied.maintenances = occupied.maintenances.filter((item) => !arcadeDeviceIds.has(item.deviceId))
+    occupied.documentation = occupied.documentation.filter((item) => !arcadeDeviceIds.has(item.deviceId))
+    const occupiedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(occupied),
+    })
+    assert.equal(occupiedResponse.status, 400)
+    assert.equal(
+      (await occupiedResponse.json()).error,
+      'Die Gruppe kann nicht gelöscht werden, solange sie Geräte enthält.',
+    )
+    const keptGroups = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(keptGroups.groups.some((group) => group.id === 'g-arcade'), true)
+    assert.equal(keptGroups.devices.some((device) => device.groupId === 'g-arcade'), true)
+
+    const withEmpty = structuredClone(keptGroups)
+    withEmpty.groups.push({ id: 'g-empty', name: 'Lager' })
+    const createdResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(withEmpty),
+    })
+    assert.equal(createdResponse.status, 200)
+    const created = await createdResponse.json()
+    assert.equal(created.groups.some((group) => group.id === 'g-empty'), true)
+    const withoutEmpty = structuredClone(created)
+    withoutEmpty.groups = withoutEmpty.groups.filter((group) => group.id !== 'g-empty')
+    const deletedGroupResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(withoutEmpty),
+    })
+    assert.equal(deletedGroupResponse.status, 200)
+    const deletedGroup = await deletedGroupResponse.json()
+    assert.equal(deletedGroup.groups.some((group) => group.id === 'g-empty'), false)
+    assert.equal(deletedGroup.devices.length, state.devices.length)
+    assert.equal(deletedGroup.groups.some((group) => group.id === 'g-arcade'), true)
+
+    const blockedDevice = structuredClone(deletedGroup)
+    blockedDevice.devices = blockedDevice.devices.filter((device) => device.id !== 'd-klima')
+    blockedDevice.maintenances = blockedDevice.maintenances.filter((item) => item.deviceId !== 'd-klima')
+    blockedDevice.documentation = blockedDevice.documentation.filter((item) => item.deviceId !== 'd-klima')
+    const blockedDeviceResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(blockedDevice),
+    })
+    assert.equal(blockedDeviceResponse.status, 400)
+    assert.equal(
+      (await blockedDeviceResponse.json()).error,
+      'Das Gerät kann nicht gelöscht werden, solange offene Wartungen vorhanden sind.',
+    )
+    const stillThere = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(stillThere.devices.some((device) => device.id === 'd-klima'), true)
+    assert.equal(openMaintenances(stillThere.maintenances, 'd-klima').length > 0, true)
+
+    const klima = stillThere.maintenances.find((item) => item.id === 'm-klima')
+    const doneResponse = await fetch(`${base}/api/maintenances/m-klima`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify({
+        dueDate: klima.dueDate,
+        intervalWeeks: klima.intervalWeeks,
+        description: klima.description,
+        detail: klima.detail,
+        createdBy: klima.createdBy,
+        status: 'erledigt',
+        performedBy: 'Jonas Keller',
+        completedAt: '2026-10-02',
+      }),
+    })
+    assert.equal(doneResponse.status, 200)
+    const done = await doneResponse.json()
+    assert.equal(openMaintenances(done.maintenances, 'd-klima').length, 0)
+    assert.equal(done.maintenances.some((item) => item.id === 'm-klima' && item.status === 'erledigt'), true)
+
+    async function upload(ownerId, filename, body) {
+      const response = await fetch(
+        `${base}/api/documents?owner=${encodeURIComponent(ownerId)}&filename=${encodeURIComponent(filename)}`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/octet-stream' },
+          body,
+        },
+      )
+      assert.equal(response.status, 200)
+      return response.json()
+    }
+
+    const klimaDoc = await upload('m-klima', 'Filter.txt', 'Filterprotokoll')
+    const deviceDoc = await upload('d-klima', 'Anlage.txt', 'Anlagendokument')
+    const keptDoc = await upload('m-flipper-oil', 'Oel.txt', 'Oelplan')
+    function storedName(id) {
+      return database.prepare('SELECT stored_name FROM documents WHERE id = ?').get(id).stored_name
+    }
+    const klimaFile = storedName(klimaDoc.id)
+    const deviceFile = storedName(deviceDoc.id)
+    const keptFile = storedName(keptDoc.id)
+    const uploads = uploadsDirectory(database)
+    assert.equal(existsSync(path.join(uploads, klimaFile)), true)
+    assert.equal(existsSync(path.join(uploads, deviceFile)), true)
+
+    const withDocumentation = structuredClone(done)
+    withDocumentation.documentation.push({
+      id: 'doc-klima',
+      deviceId: 'd-klima',
+      maintenanceId: 'm-klima',
+      date: '2026-10-02',
+      number: 9,
+      userName: 'Jonas Keller',
+      description: 'Filter wechseln',
+    })
+    const documentedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(withDocumentation),
+    })
+    assert.equal(documentedResponse.status, 200)
+    const documented = await documentedResponse.json()
+    const removedDevice = structuredClone(documented)
+    removedDevice.devices = removedDevice.devices.filter((device) => device.id !== 'd-klima')
+    removedDevice.maintenances = removedDevice.maintenances.filter((item) => item.deviceId !== 'd-klima')
+    removedDevice.documentation = removedDevice.documentation.filter((item) => item.deviceId !== 'd-klima')
+    const removedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(removedDevice),
+    })
+    assert.equal(removedResponse.status, 200)
+    const removed = await removedResponse.json()
+    assert.equal(removed.devices.some((device) => device.id === 'd-klima'), false)
+    assert.equal(removed.maintenances.some((item) => item.deviceId === 'd-klima'), false)
+    assert.equal(removed.documentation.some((item) => item.deviceId === 'd-klima'), false)
+    assert.equal(removed.devices.some((device) => device.id === 'd-flipper'), true)
+    assert.equal(removed.maintenances.some((item) => item.id === 'm-flipper-oil'), true)
+    assert.equal(listDocuments(database, 'm-klima').length, 0)
+    assert.equal(listDocuments(database, 'd-klima').length, 0)
+    assert.equal(existsSync(path.join(uploads, klimaFile)), false)
+    assert.equal(existsSync(path.join(uploads, deviceFile)), false)
+    assert.equal(listDocuments(database, 'm-flipper-oil').map((item) => item.id).join(','), keptDoc.id)
+    assert.equal(existsSync(path.join(uploads, keptFile)), true)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

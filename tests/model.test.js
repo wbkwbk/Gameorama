@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   addDevice,
+  addGroup,
   addMaintenance,
   addWeeks,
   copyMaintenance,
   createSeedDb,
   deleteDevice,
+  deleteGroup,
   deviceStatus,
   dueLevel,
   markPerformed,
@@ -110,10 +112,17 @@ test('super-user maintenance and device changes validate input', () => {
   const device = addDevice(db, 'g-haus', 'Kasse', 6)
   assert.equal(device.ok, true)
   assert.equal(device.db.devices.at(-1).number, 6)
-  const removed = deleteDevice(device.db, 'd-klima')
-  assert.equal(removed.devices.some((item) => item.id === 'd-klima'), false)
-  assert.equal(removed.maintenances.some((item) => item.deviceId === 'd-klima'), false)
-  assert.equal(nextFreeDeviceNumber(removed.devices), 5)
+  const doneKlima = {
+    ...device.db,
+    maintenances: device.db.maintenances.map((item) =>
+      item.deviceId === 'd-klima' ? { ...item, status: 'erledigt' } : item,
+    ),
+  }
+  const removed = deleteDevice(doneKlima, 'd-klima')
+  assert.equal(removed.ok, true)
+  assert.equal(removed.db.devices.some((item) => item.id === 'd-klima'), false)
+  assert.equal(removed.db.maintenances.some((item) => item.deviceId === 'd-klima'), false)
+  assert.equal(nextFreeDeviceNumber(removed.db.devices), 5)
 })
 
 test('next free device number is the smallest missing positive integer', () => {
@@ -386,4 +395,59 @@ test('copy maintenance is offen and does not copy performed-by', () => {
 
 test('today uses the local calendar date', () => {
   assert.equal(todayISO(new Date(2026, 9, 1)), '2026-10-01')
+})
+
+test('a group can be deleted only when it has no devices', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const blocked = deleteGroup(db, 'g-haus')
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.error, 'Die Gruppe kann nicht gelöscht werden, solange sie Geräte enthält.')
+  assert.equal(db.groups.some((group) => group.id === 'g-haus'), true)
+  assert.equal(db.devices.some((device) => device.groupId === 'g-haus'), true)
+
+  const added = addGroup(db, 'Lager')
+  assert.equal(added.ok, true)
+  const empty = added.db.groups.find((group) => group.name === 'Lager')
+  const removed = deleteGroup(added.db, empty.id)
+  assert.equal(removed.ok, true)
+  assert.equal(removed.db.groups.some((group) => group.id === empty.id), false)
+  assert.equal(removed.db.devices.length, db.devices.length)
+  assert.equal(removed.db.groups.some((group) => group.id === 'g-haus'), true)
+})
+
+test('a device can be deleted only when its open maintenance list is empty', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const blocked = deleteDevice(db, 'd-klima')
+  assert.equal(blocked.ok, false)
+  assert.equal(blocked.error, 'Das Gerät kann nicht gelöscht werden, solange offene Wartungen vorhanden sind.')
+  assert.equal(db.devices.some((device) => device.id === 'd-klima'), true)
+
+  const doneOnly = {
+    ...db,
+    maintenances: db.maintenances.map((item) =>
+      item.deviceId === 'd-klima'
+        ? { ...item, status: 'erledigt', performedBy: 'Anna Berger', completedAt: '2026-10-01' }
+        : item,
+    ),
+    documentation: [
+      ...db.documentation,
+      {
+        id: 'doc-klima',
+        deviceId: 'd-klima',
+        maintenanceId: 'm-klima',
+        date: '2026-10-01',
+        number: 2,
+        userName: 'Anna Berger',
+        description: 'Filter wechseln',
+      },
+    ],
+  }
+  assert.equal(openMaintenances(doneOnly.maintenances, 'd-klima').length, 0)
+  const removed = deleteDevice(doneOnly, 'd-klima')
+  assert.equal(removed.ok, true)
+  assert.equal(removed.db.devices.some((device) => device.id === 'd-klima'), false)
+  assert.equal(removed.db.maintenances.some((item) => item.deviceId === 'd-klima'), false)
+  assert.equal(removed.db.documentation.some((item) => item.deviceId === 'd-klima'), false)
+  assert.equal(removed.db.documentation.some((item) => item.id === 'doc-1'), true)
+  assert.equal(removed.db.devices.some((device) => device.id === 'd-flipper'), true)
 })

@@ -9,6 +9,7 @@ import {
   deviceStatus,
   formatDisplayDate,
   maintenanceStatus,
+  deviceDeleteBlockReason,
   openMaintenances,
   sortedDocumentation,
   todayISO,
@@ -340,7 +341,12 @@ export default function DeviceScreen({
           </p>
         </div>
         {isSuper && (
-          <button type="button" className="btn danger" onClick={onDeleteDevice}>
+          <button
+            type="button"
+            className="btn danger"
+            disabled={Boolean(deviceDeleteBlockReason(db, device.id))}
+            onClick={onDeleteDevice}
+          >
             Gerät löschen
           </button>
         )}

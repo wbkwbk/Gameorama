@@ -5,7 +5,9 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   addWeeks,
   createSeedDb,
+  deviceDeleteBlockReason,
   formatISODate,
+  groupDeleteBlockReason,
   maintenanceEditError,
   maintenanceEditFields,
   prepareDeviceNumbers,
@@ -831,6 +833,21 @@ function seedState(database, state) {
   })
 }
 
+function assertDeletionsAllowed(previous, state) {
+  const nextGroupIds = new Set(state.groups.map((group) => String(group.id)))
+  for (const group of previous.groups) {
+    if (nextGroupIds.has(String(group.id))) continue
+    const blocked = groupDeleteBlockReason(previous, group.id)
+    if (blocked) throw new Error(blocked)
+  }
+  const nextDeviceIds = new Set(state.devices.map((device) => String(device.id)))
+  for (const device of previous.devices) {
+    if (nextDeviceIds.has(String(device.id))) continue
+    const blocked = deviceDeleteBlockReason(previous, device.id)
+    if (blocked) throw new Error(blocked)
+  }
+}
+
 function assertGroupAndAssignmentRights(previous, state, actor) {
   const superUser = actor?.role === 'super'
   const previousGroups = new Map(
@@ -912,6 +929,7 @@ export function deleteMaintenanceRecord(database, id) {
 export function writeState(database, state, actor = null) {
   if (!isState(state)) throw new Error('Ungültige Daten')
   const previous = readState(database)
+  assertDeletionsAllowed(previous, state)
   assertGroupAndAssignmentRights(previous, state, actor)
   const next = {
     ...state,

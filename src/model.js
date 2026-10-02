@@ -384,16 +384,36 @@ export function moveDevice(db, deviceId, groupId) {
   }
 }
 
+export function groupDeleteBlockReason(db, groupId) {
+  const id = String(groupId)
+  if (db.devices.some((device) => String(device.groupId) === id)) {
+    return 'Die Gruppe kann nicht gelöscht werden, solange sie Geräte enthält.'
+  }
+  return null
+}
+
+export function deviceDeleteBlockReason(db, deviceId) {
+  if (openMaintenances(db.maintenances, deviceId).length > 0) {
+    return 'Das Gerät kann nicht gelöscht werden, solange offene Wartungen vorhanden sind.'
+  }
+  return null
+}
+
 export function deleteGroup(db, groupId) {
+  const blocked = groupDeleteBlockReason(db, groupId)
+  if (blocked) return { ok: false, error: blocked }
   const deviceIds = new Set(
     db.devices.filter((device) => device.groupId === groupId).map((device) => device.id),
   )
   return {
-    ...db,
-    groups: db.groups.filter((group) => group.id !== groupId),
-    devices: db.devices.filter((device) => device.groupId !== groupId),
-    maintenances: db.maintenances.filter((item) => !deviceIds.has(item.deviceId)),
-    documentation: db.documentation.filter((item) => !deviceIds.has(item.deviceId)),
+    ok: true,
+    db: {
+      ...db,
+      groups: db.groups.filter((group) => group.id !== groupId),
+      devices: db.devices.filter((device) => device.groupId !== groupId),
+      maintenances: db.maintenances.filter((item) => !deviceIds.has(item.deviceId)),
+      documentation: db.documentation.filter((item) => !deviceIds.has(item.deviceId)),
+    },
   }
 }
 
@@ -420,11 +440,16 @@ export function addDevice(db, groupId, name, number) {
 }
 
 export function deleteDevice(db, deviceId) {
+  const blocked = deviceDeleteBlockReason(db, deviceId)
+  if (blocked) return { ok: false, error: blocked }
   return {
-    ...db,
-    devices: db.devices.filter((device) => device.id !== deviceId),
-    maintenances: db.maintenances.filter((item) => item.deviceId !== deviceId),
-    documentation: db.documentation.filter((item) => item.deviceId !== deviceId),
+    ok: true,
+    db: {
+      ...db,
+      devices: db.devices.filter((device) => device.id !== deviceId),
+      maintenances: db.maintenances.filter((item) => item.deviceId !== deviceId),
+      documentation: db.documentation.filter((item) => item.deviceId !== deviceId),
+    },
   }
 }
 

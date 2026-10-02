@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { deviceStatus, formatDisplayDate, nextFreeDeviceNumber, sortDevices } from '../model.js'
+import {
+  deviceDeleteBlockReason,
+  deviceStatus,
+  formatDisplayDate,
+  groupDeleteBlockReason,
+  nextFreeDeviceNumber,
+  sortDevices,
+} from '../model.js'
 import ResizableCard from '../ResizableCard.jsx'
 import ResizableList from '../ResizableList.jsx'
 
@@ -135,7 +142,12 @@ export default function OverviewScreen({
                   </select>
                 </label>
                 {isSuper && (
-                  <button type="button" className="btn tiny danger" onClick={() => onDeleteGroup(group)}>
+                  <button
+                    type="button"
+                    className="btn tiny danger"
+                    disabled={Boolean(groupDeleteBlockReason(db, group.id))}
+                    onClick={() => onDeleteGroup(group)}
+                  >
                     Gruppe löschen
                   </button>
                 )}
@@ -171,6 +183,7 @@ export default function OverviewScreen({
                         <button
                           type="button"
                           className="btn tiny danger"
+                          disabled={Boolean(deviceDeleteBlockReason(db, device.id))}
                           onClick={() => onDeleteDevice(device)}
                         >
                           Löschen
