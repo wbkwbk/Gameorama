@@ -196,15 +196,34 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
 .summary .ok { color: var(--ok); background: var(--ok-bg); }
 
 .group, .device-page section {
+  --card-pad-top: 1rem;
+  --card-pad-x: 1.1rem;
+  --card-pad-bottom: 1.15rem;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 1.1rem;
-  padding: 1rem 1.1rem 1.15rem;
+  padding: var(--card-pad-top) var(--card-pad-x) var(--card-pad-bottom);
   margin-top: 1rem;
   box-shadow: var(--shadow);
 }
 .group h2, .device-page h2 { font-size: 1.25rem; }
-.device-list-frame { margin-top: 0.8rem; }
+.resizable-card {
+  position: relative;
+  min-width: 0;
+}
+.resizable-card-body {
+  min-width: 0;
+  max-width: 100%;
+}
+.resizable-card.is-custom-width > .resizable-card-body {
+  overflow-x: auto;
+}
+.device-list-frame {
+  position: relative;
+  margin-top: 0.8rem;
+  min-width: 0;
+  max-width: 100%;
+}
 .device-list {
   list-style: none;
   padding: 0;
@@ -212,29 +231,95 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
   display: grid;
   gap: 0.55rem;
   align-content: start;
-  overflow-y: auto;
+  overflow: auto;
   scrollbar-gutter: stable;
   height: 14.5rem;
   min-height: 14.5rem;
   max-height: 70vh;
 }
 .resize-handle {
+  position: relative;
   display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #6f685e;
+  touch-action: none;
+  z-index: 3;
+}
+.resize-handle-y {
   width: 100%;
   height: 1rem;
   margin-top: 0.2rem;
-  padding: 0;
-  border: 0;
   border-bottom: 4px solid #d9d0c1;
   border-radius: 0 0 0.75rem 0.75rem;
-  background: transparent;
   cursor: ns-resize;
-  touch-action: none;
+}
+.resize-handle-y::before,
+.resize-handle-x::before {
+  content: "";
+  position: absolute;
+  background:
+    linear-gradient(currentColor, currentColor) 0 0 / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 50% / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 100% / 100% 2px no-repeat;
+}
+.resize-handle-y::before {
+  left: 50%;
+  bottom: 1px;
+  width: 2rem;
+  height: 0.55rem;
+  transform: translateX(-50%);
+}
+.resize-handle-x {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: max(0.9rem, var(--card-pad-x, 0px));
+  border-right: 4px solid #d9d0c1;
+  border-radius: 0 0.95rem 0.95rem 0;
+  cursor: ew-resize;
+}
+.resize-handle-x::before {
+  top: 50%;
+  left: 50%;
+  width: 0.45rem;
+  height: 1.7rem;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(currentColor, currentColor) left center / 2px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 0.16rem center / 2px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 0.32rem center / 2px 100% no-repeat;
+}
+.resize-handle-xy {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  cursor: nwse-resize;
+  z-index: 4;
+}
+.resize-handle-xy::before {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  background-image: radial-gradient(circle, currentColor 1.35px, transparent 1.55px);
+  background-size: 5px 5px;
+  background-position: right bottom;
 }
 .resize-handle:hover,
 .resize-handle:focus-visible {
-  border-bottom-color: var(--navy-2);
-  background: rgba(20, 35, 58, 0.04);
+  color: var(--navy-2);
+  border-color: var(--navy-2);
+  background: rgba(20, 35, 58, 0.05);
+  outline: 3px solid #f0a202;
+  outline-offset: 2px;
 }
 .device-row {
   display: flex;
@@ -345,7 +430,28 @@ tr.level-ok td { background: #f7fbf8; }
 }
 .done-btn small { font-weight: 400; opacity: 0.9; }
 .maint-table { min-width: 68rem; }
-.maint-detail { min-width: 16rem; max-width: 24rem; display: grid; gap: 0.55rem; }
+.maint-detail {
+  --card-pad-top: 0px;
+  --card-pad-x: 0px;
+  --card-pad-bottom: 0px;
+  width: 24rem;
+  min-width: 16rem;
+  max-width: 24rem;
+  display: block;
+}
+.maint-detail.is-custom-width {
+  max-width: none;
+}
+.maint-detail > .resizable-card-body {
+  display: grid;
+  gap: 0.55rem;
+  overflow: auto;
+}
+.maint-detail > .resize-handle-x {
+  right: -0.4rem;
+  width: 0.9rem;
+  border-radius: 0.45rem;
+}
 .detail-editor { display: grid; gap: 0.45rem; justify-items: start; }
 .detail-editor textarea { min-height: 5.5rem; }
 .detail-read { white-space: pre-wrap; word-break: break-word; }

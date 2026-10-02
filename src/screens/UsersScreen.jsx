@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { roleLabel } from '../model.js'
+import ResizableCard from '../ResizableCard.jsx'
 import { createUser, deleteUser, fetchUsers, updateUser } from '../storage.js'
 
 const EMPTY = { username: '', password: '', name: '', role: 'standard', comment: '' }
@@ -215,12 +216,12 @@ export default function UsersScreen({
       {banner && <p className={`banner banner-${banner.tone}`} role="status">{banner.text}</p>}
       {loadError && <p className="banner banner-error" role="alert">{loadError}</p>}
 
-      <section className="group">
+      <ResizableCard as="section" className="group" storageKey="users-create" label="Neuer Benutzer">
         <h2>Neuer Benutzer</h2>
         <UserForm key={createKey} mode="create" initial={EMPTY} onSubmit={handleCreate} />
-      </section>
+      </ResizableCard>
 
-      <section className="group">
+      <ResizableCard as="section" className="group" storageKey="users-list" label="Benutzerliste">
         <h2>Benutzer</h2>
         {users === null && !loadError && <p className="empty">Benutzer werden geladen …</p>}
         {users && users.length === 0 && <p className="empty">Noch keine Benutzer.</p>}
@@ -279,7 +280,7 @@ export default function UsersScreen({
             />
           </div>
         )}
-      </section>
+      </ResizableCard>
     </div>
   )
 }

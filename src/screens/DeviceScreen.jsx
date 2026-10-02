@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import Attachments from '../Attachments.jsx'
+import ResizableCard from '../ResizableCard.jsx'
+import { MIN_DETAIL_WIDTH } from '../panelSize.js'
 import { listDocuments } from '../storage.js'
 import {
   addWeeks,
@@ -10,7 +12,7 @@ import {
   todayISO,
 } from '../model.js'
 
-function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocuments }) {
+function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocuments, storageKey }) {
   const [text, setText] = useState(item.detail || '')
   const [saved, setSaved] = useState(false)
 
@@ -24,7 +26,12 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
   }, [item.detail])
 
   return (
-    <div className="maint-detail">
+    <ResizableCard
+      className="maint-detail"
+      storageKey={storageKey}
+      label={`Wartungsbeschrieb ${item.description}`}
+      minReadable={MIN_DETAIL_WIDTH}
+    >
       {isSuper ? (
         <div className="detail-editor">
           <textarea
@@ -58,13 +65,18 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
         isSuper={isSuper}
         onChange={onDocuments}
       />
-    </div>
+    </ResizableCard>
   )
 }
 
-function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments }) {
+function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments, storageKey }) {
   return (
-    <div className="maint-detail">
+    <ResizableCard
+      className="maint-detail"
+      storageKey={storageKey}
+      label={`Wartungsbeschrieb ${item.description}`}
+      minReadable={MIN_DETAIL_WIDTH}
+    >
       <p className="detail-read">{item.detail?.trim() ? item.detail : 'Kein Wartungsbeschrieb.'}</p>
       <Attachments
         ownerId={item.id}
@@ -73,7 +85,7 @@ function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments })
         isSuper={isSuper}
         onChange={onDocuments}
       />
-    </div>
+    </ResizableCard>
   )
 }
 
@@ -184,7 +196,7 @@ export default function DeviceScreen({
 
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
-      <section>
+      <ResizableCard as="section" storageKey={`device-list:${device.id}`} label="Wartungsliste">
         <h2>Wartungsliste</h2>
         {maintenances.length === 0 ? (
           <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
@@ -220,6 +232,7 @@ export default function DeviceScreen({
                           token={user.token}
                           onSave={onSaveDetail}
                           onDocuments={reloadDocuments}
+                          storageKey={`maint-detail:${item.id}`}
                         />
                       </td>
                       <td>{item.createdBy}</td>
@@ -253,9 +266,9 @@ export default function DeviceScreen({
             </table>
           </div>
         )}
-      </section>
+      </ResizableCard>
 
-      <section>
+      <ResizableCard as="section" storageKey={`device-notes:${device.id}`} label="Bemerkungen und Links">
         <h2>Bemerkungen und Links</h2>
         {isSuper ? (
           <form onSubmit={saveNotes} className="notes-form">
@@ -283,10 +296,10 @@ export default function DeviceScreen({
           isSuper={isSuper}
           onChange={reloadDocuments}
         />
-      </section>
+      </ResizableCard>
 
       {isSuper && (
-        <section>
+        <ResizableCard as="section" storageKey={`device-add:${device.id}`} label="Wartung hinzufügen">
           <h2>Wartung hinzufügen / löschen</h2>
           <form className="maintenance-form" onSubmit={submitMaintenance}>
             <label>
@@ -336,10 +349,10 @@ export default function DeviceScreen({
             <button type="submit" className="btn secondary">Wartung hinzufügen</button>
             {formError && <p className="form-error">{formError}</p>}
           </form>
-        </section>
+        </ResizableCard>
       )}
 
-      <section>
+      <ResizableCard as="section" storageKey={`device-docs:${device.id}`} label="Dokumentationsbereich">
         <h2>Dokumentationsbereich</h2>
         <p className="muted">Alle Wartungen dieses Geräts, die neueste zuerst.</p>
         {documentation.length === 0 ? (
@@ -372,6 +385,7 @@ export default function DeviceScreen({
                         token={user.token}
                         isSuper={isSuper}
                         onDocuments={reloadDocuments}
+                        storageKey={`maint-doc-detail:${item.id}`}
                       />
                     </td>
                     <td>{item.createdBy}</td>
@@ -415,7 +429,7 @@ export default function DeviceScreen({
             </div>
           </>
         )}
-      </section>
+      </ResizableCard>
     </div>
   )
 }

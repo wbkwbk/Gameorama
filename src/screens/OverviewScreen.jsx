@@ -1,12 +1,15 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { deviceStatus, formatDisplayDate, nextFreeDeviceNumber } from '../model.js'
+import ResizableCard, { trackPointer, usePanelResize } from '../ResizableCard.jsx'
+import { NUDGE_STEP, NUDGE_STEP_LARGE, readPanelSize, writePanelSize } from '../panelSize.js'
 
-function DeviceListFrame({ children, itemKey }) {
+function DeviceListFrame({ children, itemKey, storageKey, label }) {
   const frameRef = useRef(null)
   const listRef = useRef(null)
-  const resizedRef = useRef(false)
+  const widthApi = usePanelResize()
+  const [height, setHeight] = useState(() => readPanelSize(storageKey).height ?? null)
+  const resizedRef = useRef(height != null)
   const boundsRef = useRef({ min: 160, max: 640 })
-  const [height, setHeight] = useState(null)
   const [bounds, setBounds] = useState(boundsRef.current)
 
   useLayoutEffect(() => {
@@ -56,33 +59,46 @@ function DeviceListFrame({ children, itemKey }) {
     return Math.min(max, Math.max(min, value))
   }
 
-  function onPointerDown(event) {
-    if (event.button != null && event.button !== 0) return
-    const handle = event.currentTarget
-    handle.setPointerCapture(event.pointerId)
-    const startY = event.clientY
-    const startH = listRef.current.getBoundingClientRect().height
+  function commitHeight(value) {
+    const next = clamp(value)
+    resizedRef.current = true
+    setHeight(next)
+    writePanelSize(storageKey, { height: next })
+    return next
+  }
 
-    function move(moveEvent) {
-      resizedRef.current = true
-      setHeight(clamp(startH + moveEvent.clientY - startY))
-    }
-    function up(upEvent) {
-      handle.removeEventListener('pointermove', move)
-      handle.removeEventListener('pointerup', up)
-      if (handle.hasPointerCapture(upEvent.pointerId)) handle.releasePointerCapture(upEvent.pointerId)
-    }
-    handle.addEventListener('pointermove', move)
-    handle.addEventListener('pointerup', up)
+  function onPointerDown(event) {
+    const startH = listRef.current.getBoundingClientRect().height
+    trackPointer(event, (move, origin) => {
+      commitHeight(startH + move.clientY - origin.y)
+    })
   }
 
   function onKeyDown(event) {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
     event.preventDefault()
-    resizedRef.current = true
     const current = listRef.current.getBoundingClientRect().height
-    const step = event.shiftKey ? 48 : 16
-    setHeight(clamp(current + (event.key === 'ArrowDown' ? step : -step)))
+    const step = event.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP
+    commitHeight(current + (event.key === 'ArrowDown' ? step : -step))
+  }
+
+  function onCornerPointerDown(event) {
+    if (!widthApi?.ref.current || !listRef.current) return
+    widthApi.refreshBounds()
+    const startWidth = widthApi.ref.current.getBoundingClientRect().width
+    const startH = listRef.current.getBoundingClientRect().height
+    trackPointer(event, (move, origin) => {
+      widthApi.commit(startWidth + move.clientX - origin.x)
+      commitHeight(startH + move.clientY - origin.y)
+    })
+  }
+
+  function onCornerKeyDown(event) {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      widthApi?.onKeyDown(event)
+      return
+    }
+    onKeyDown(event)
   }
 
   return (
@@ -100,9 +116,9 @@ function DeviceListFrame({ children, itemKey }) {
       </ul>
       <button
         type="button"
-        className="resize-handle"
+        className="resize-handle resize-handle-y"
         role="slider"
-        aria-label="Höhe der Geräteliste"
+        aria-label={`Höhe: ${label}`}
         aria-orientation="vertical"
         aria-valuemin={Math.round(bounds.min)}
         aria-valuemax={Math.round(bounds.max)}
@@ -110,6 +126,15 @@ function DeviceListFrame({ children, itemKey }) {
         onPointerDown={onPointerDown}
         onKeyDown={onKeyDown}
       />
+      {widthApi && (
+        <button
+          type="button"
+          className="resize-handle resize-handle-xy"
+          aria-label={`Größe: ${label}`}
+          onPointerDown={onCornerPointerDown}
+          onKeyDown={onCornerKeyDown}
+        />
+      )}
     </div>
   )
 }
@@ -186,7 +211,13 @@ export default function OverviewScreen({
       {db.groups.map((group) => {
         const devices = db.devices.filter((device) => device.groupId === group.id)
         return (
-          <section className="group" key={group.id}>
+          <ResizableCard
+            as="section"
+            className="group"
+            key={group.id}
+            storageKey={`group-list:${group.id}`}
+            label={`Geräteliste ${group.name}`}
+          >
             <header className="group-head">
               <h2>{group.name}</h2>
               {isSuper && (
@@ -198,7 +229,11 @@ export default function OverviewScreen({
             {devices.length === 0 ? (
               <p className="empty">Keine Geräte in dieser Gruppe.</p>
             ) : (
-              <DeviceListFrame itemKey={`${group.id}:${devices.length}`}>
+              <DeviceListFrame
+                itemKey={`${group.id}:${devices.length}`}
+                storageKey={`group-list:${group.id}`}
+                label={`Geräteliste ${group.name}`}
+              >
                 {devices.map((device) => {
                   const status = deviceStatus(device.id, db.maintenances, today)
                   return (
@@ -260,7 +295,7 @@ export default function OverviewScreen({
                 {deviceErrors[group.id] && <p className="form-error">{deviceErrors[group.id]}</p>}
               </form>
             )}
-          </section>
+          </ResizableCard>
         )
       })}
 
