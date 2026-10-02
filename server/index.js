@@ -1,15 +1,22 @@
+import { createReadStream, existsSync, statSync } from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  MAX_UPLOAD_BYTES,
+  contentDisposition,
   createSession,
+  deleteDocument,
   deleteSession,
   deleteUser,
   isState,
+  listDocuments,
   listUsers,
   loginUser,
   openDatabase,
+  readDocumentFile,
   readState,
+  saveDocument,
   saveUser,
   sessionUser,
   updateUser,
@@ -77,6 +84,117 @@ function requireSuper(database, request) {
   const user = sessionUser(database, tokenFrom(request))
   if (!user || user.role !== 'super') return null
   return user
+}
+
+function readUpload(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    let failed = false
+    request.on('data', (chunk) => {
+      if (failed) return
+      size += chunk.length
+      if (size > MAX_UPLOAD_BYTES) {
+        failed = true
+        reject(new Error('Die Datei ist zu gross. Maximal 15 MB.'))
+        request.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => {
+      if (!failed) resolve(Buffer.concat(chunks))
+    })
+    request.on('error', (error) => {
+      if (!failed) reject(error)
+    })
+  })
+}
+
+function streamDocument(response, doc) {
+  if (!existsSync(doc.path)) {
+    send(response, 404, { error: 'Dokument nicht gefunden' })
+    return
+  }
+  const stat = statSync(doc.path)
+  const type = doc.mimeType === 'text/plain' ? 'text/plain; charset=utf-8' : doc.mimeType
+  response.writeHead(200, {
+    'Content-Type': type,
+    'Content-Length': stat.size,
+    'Content-Disposition': contentDisposition(doc.originalName, doc.mimeType),
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, no-store',
+  })
+  createReadStream(doc.path).pipe(response)
+}
+
+async function handleDocuments(request, response, database, url) {
+  const { pathname } = url
+
+  if (pathname === '/api/documents' && request.method === 'GET') {
+    const user = sessionUser(database, tokenFrom(request))
+    if (!user) {
+      send(response, 401, { error: 'Nicht angemeldet' })
+      return
+    }
+    send(response, 200, listDocuments(database, url.searchParams.get('owner') || ''))
+    return
+  }
+
+  if (pathname === '/api/documents' && request.method === 'POST') {
+    const user = requireSuper(database, request)
+    if (!user) {
+      request.resume()
+      send(response, 403, { error: 'Keine Berechtigung' })
+      return
+    }
+    const saved = saveDocument(database, {
+      ownerId: url.searchParams.get('owner') || '',
+      filename: url.searchParams.get('filename') || '',
+      bytes: await readUpload(request),
+    })
+    send(response, 200, saved)
+    return
+  }
+
+  if (!pathname.startsWith('/api/documents/')) {
+    send(response, 404, { error: 'Nicht gefunden' })
+    return
+  }
+
+  const id = decodeURIComponent(pathname.slice('/api/documents/'.length))
+  if (!id || id.includes('/')) {
+    send(response, 404, { error: 'Nicht gefunden' })
+    return
+  }
+
+  if (request.method === 'GET') {
+    const queryToken = url.searchParams.get('token') || ''
+    const user = sessionUser(database, tokenFrom(request) || queryToken)
+    if (!user) {
+      send(response, 401, { error: 'Nicht angemeldet' })
+      return
+    }
+    const doc = readDocumentFile(database, id)
+    if (!doc) {
+      send(response, 404, { error: 'Dokument nicht gefunden' })
+      return
+    }
+    streamDocument(response, doc)
+    return
+  }
+
+  if (request.method === 'DELETE') {
+    if (!requireSuper(database, request)) {
+      send(response, 403, { error: 'Keine Berechtigung' })
+      return
+    }
+    deleteDocument(database, id)
+    send(response, 200, { ok: true })
+    return
+  }
+
+  send(response, 404, { error: 'Nicht gefunden' })
 }
 
 async function handleUsers(request, response, database, pathname) {
@@ -152,6 +270,11 @@ export function startServer({ port = 3001, dbPath }) {
         return
       }
 
+      if (pathname === '/api/documents' || pathname.startsWith('/api/documents/')) {
+        await handleDocuments(request, response, database, url)
+        return
+      }
+
       if (pathname === '/api/users' || pathname.startsWith('/api/users/')) {
         if (!requireSuper(database, request)) {
           send(response, 403, { error: 'Keine Berechtigung' })
@@ -178,7 +301,14 @@ export function startServer({ port = 3001, dbPath }) {
       send(response, 404, { error: 'Nicht gefunden' })
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : 'Ungültige Daten'
-      const status = message === 'Benutzer nicht gefunden' ? 404 : message === 'Keine Berechtigung' ? 403 : 400
+      const status =
+        message === 'Benutzer nicht gefunden' || message === 'Dokument nicht gefunden'
+          ? 404
+          : message === 'Nicht angemeldet'
+            ? 401
+            : message === 'Keine Berechtigung'
+              ? 403
+              : 400
       send(response, status, { error: message })
     }
   })

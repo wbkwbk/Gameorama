@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createSeedDb, formatISODate, prepareDeviceNumbers } from '../src/model.js'
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS maintenances (
   due_date TEXT NOT NULL,
   interval_weeks INTEGER NOT NULL,
   description TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'offen',
   performed_by TEXT NOT NULL DEFAULT '',
@@ -33,6 +34,14 @@ CREATE TABLE IF NOT EXISTS maintenances (
   created_at TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (device_id) REFERENCES devices(id)
 );
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+  mime_type TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS documents_owner_idx ON documents(owner_id);
 CREATE TABLE IF NOT EXISTS documentation (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
@@ -100,6 +109,183 @@ function ensureColumn(database, table, name, definition) {
   }
 }
 
+const uploadRoots = new WeakMap()
+
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+const ALLOWED_TYPES = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  txt: 'text/plain',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+
+const INLINE_TYPES = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'text/plain',
+])
+
+export function uploadsDirectory(database) {
+  const directory = uploadRoots.get(database)
+  if (!directory) throw new Error('Upload-Ordner fehlt')
+  return directory
+}
+
+export function describeUpload(filename) {
+  const originalName = String(filename ?? '').trim()
+  if (!originalName || originalName.length > 180) throw new Error('Dateiname fehlt')
+  if (
+    /[\\/\0]/.test(originalName) ||
+    originalName.includes('..') ||
+    path.basename(originalName) !== originalName
+  ) {
+    throw new Error('Ungültiger Dateiname')
+  }
+  const extension = originalName.includes('.') ? originalName.split('.').pop().toLowerCase() : ''
+  const mimeType = ALLOWED_TYPES[extension]
+  if (!mimeType) throw new Error('Dieser Dateityp ist nicht erlaubt.')
+  return {
+    originalName,
+    mimeType,
+    storedExt: extension === 'jpeg' ? 'jpg' : extension,
+  }
+}
+
+export function resolveUploadPath(directory, storedName) {
+  const name = String(storedName ?? '')
+  if (!/^[a-f0-9]{32}\.(pdf|png|jpg|webp|txt|doc|docx|xlsx)$/.test(name)) {
+    throw new Error('Ungültiger Dateiname')
+  }
+  const root = path.resolve(directory)
+  const full = path.resolve(root, name)
+  if (path.dirname(full) !== root) throw new Error('Ungültiger Dateiname')
+  return full
+}
+
+export function contentDisposition(originalName, mimeType) {
+  const kind = INLINE_TYPES.has(mimeType) ? 'inline' : 'attachment'
+  const fallback = originalName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
+  return `${kind}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(originalName)}`
+}
+
+function publicDocument(row) {
+  return {
+    id: row.id,
+    ownerId: row.ownerId,
+    originalName: row.originalName,
+    mimeType: row.mimeType,
+  }
+}
+
+export function listDocuments(database, ownerId = '') {
+  const owner = String(ownerId ?? '').trim()
+  const rows = owner
+    ? database
+        .prepare(
+          `SELECT id, owner_id AS ownerId, original_name AS originalName, mime_type AS mimeType
+           FROM documents WHERE owner_id = ? ORDER BY rowid`,
+        )
+        .all(owner)
+    : database
+        .prepare(
+          `SELECT id, owner_id AS ownerId, original_name AS originalName, mime_type AS mimeType
+           FROM documents ORDER BY rowid`,
+        )
+        .all()
+  return rows.map(publicDocument)
+}
+
+export function saveDocument(database, { ownerId, filename, bytes }) {
+  const owner = String(ownerId ?? '').trim()
+  if (!/^[A-Za-z0-9_-]+$/.test(owner)) throw new Error('Ungültiger Bezug')
+  const device = database.prepare('SELECT id FROM devices WHERE id = ?').get(owner)
+  const maintenance = database.prepare('SELECT id FROM maintenances WHERE id = ?').get(owner)
+  if (!device && !maintenance) throw new Error('Das Gerät oder die Wartung gibt es nicht mehr.')
+  if (!Buffer.isBuffer(bytes)) throw new Error('Datei fehlt')
+  if (bytes.length > MAX_UPLOAD_BYTES) throw new Error('Die Datei ist zu gross. Maximal 15 MB.')
+  const { originalName, mimeType, storedExt } = describeUpload(filename)
+  const id = randomUUID()
+  const storedName = `${randomBytes(16).toString('hex')}.${storedExt}`
+  const directory = uploadsDirectory(database)
+  mkdirSync(directory, { recursive: true })
+  const full = resolveUploadPath(directory, storedName)
+  writeFileSync(full, bytes)
+  try {
+    database
+      .prepare(
+        `INSERT INTO documents (id, owner_id, original_name, stored_name, mime_type)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(id, owner, originalName, storedName, mimeType)
+  } catch (error) {
+    try {
+      unlinkSync(full)
+    } catch {
+      // Die Datei bleibt sonst neben einer fehlgeschlagenen Zeile liegen.
+    }
+    throw error
+  }
+  return { id, ownerId: owner, originalName, mimeType }
+}
+
+export function readDocumentFile(database, id) {
+  const clean = String(id ?? '')
+  if (!/^[0-9a-f-]{36}$/i.test(clean)) return null
+  const row = database
+    .prepare(
+      `SELECT id, owner_id AS ownerId, original_name AS originalName,
+              stored_name AS storedName, mime_type AS mimeType
+       FROM documents WHERE id = ?`,
+    )
+    .get(clean)
+  if (!row) return null
+  return {
+    ...publicDocument(row),
+    path: resolveUploadPath(uploadsDirectory(database), row.storedName),
+  }
+}
+
+export function deleteDocument(database, id) {
+  const found = readDocumentFile(database, id)
+  if (!found) throw new Error('Dokument nicht gefunden')
+  database.prepare('DELETE FROM documents WHERE id = ?').run(found.id)
+  try {
+    unlinkSync(found.path)
+  } catch {
+    // Die Zeile ist weg, auch wenn die Datei schon fehlte.
+  }
+}
+
+function pruneDocuments(database, state) {
+  const keep = new Set([
+    ...state.devices.map((device) => String(device.id)),
+    ...state.maintenances.map((item) => String(item.id)),
+  ])
+  const rows = database
+    .prepare('SELECT id, owner_id AS ownerId, stored_name AS storedName FROM documents')
+    .all()
+  const stale = rows.filter((row) => !keep.has(String(row.ownerId)))
+  if (stale.length === 0) return
+  const remove = database.prepare('DELETE FROM documents WHERE id = ?')
+  const directory = uploadsDirectory(database)
+  for (const row of stale) {
+    remove.run(row.id)
+    try {
+      unlinkSync(resolveUploadPath(directory, row.storedName))
+    } catch {
+      // Eine fehlende Datei blockiert das Entfernen der Zeile nicht.
+    }
+  }
+}
+
 function migrate(database) {
   ensureColumn(database, 'devices', 'number', 'INTEGER')
   const rows = database.prepare('SELECT id, number FROM devices ORDER BY position, id').all()
@@ -119,6 +305,8 @@ function migrate(database) {
   }
   database.exec('CREATE UNIQUE INDEX IF NOT EXISTS devices_number_unique ON devices(number)')
 
+  ensureColumn(database, 'maintenances', 'detail', "TEXT NOT NULL DEFAULT ''")
+  database.prepare(`UPDATE maintenances SET detail = '' WHERE detail IS NULL`).run()
   ensureColumn(database, 'maintenances', 'created_by', "TEXT NOT NULL DEFAULT ''")
   ensureColumn(database, 'maintenances', 'status', "TEXT NOT NULL DEFAULT 'offen'")
   ensureColumn(database, 'maintenances', 'performed_by', "TEXT NOT NULL DEFAULT ''")
@@ -146,6 +334,9 @@ export function openDatabase(filePath) {
   database.exec('PRAGMA foreign_keys = ON')
   database.exec(SCHEMA)
   migrate(database)
+  const uploads = path.join(path.dirname(path.resolve(filePath)), 'uploads')
+  mkdirSync(uploads, { recursive: true })
+  uploadRoots.set(database, uploads)
   const seeded = database.prepare(`SELECT value FROM meta WHERE key = 'seeded'`).get()
   if (!seeded) {
     seedState(database, createSeedDb())
@@ -349,7 +540,7 @@ export function readState(database) {
   const maintenances = database
     .prepare(
       `SELECT id, device_id AS deviceId, due_date AS dueDate,
-              interval_weeks AS intervalWeeks, description,
+              interval_weeks AS intervalWeeks, description, detail,
               created_by AS createdBy, status, performed_by AS performedBy,
               completed_at AS completedAt, created_at AS createdAt
        FROM maintenances ORDER BY due_date, id`,
@@ -358,6 +549,7 @@ export function readState(database) {
     .map((item) => ({
       ...item,
       intervalWeeks: Number(item.intervalWeeks),
+      detail: item.detail || '',
       createdBy: item.createdBy || '',
       status: item.status === 'erledigt' ? 'erledigt' : 'offen',
       performedBy: item.performedBy || '',
@@ -396,12 +588,18 @@ function trustedMaintenance(item) {
     dueDate: String(item.dueDate),
     intervalWeeks: Number(item.intervalWeeks),
     description: String(item.description ?? '').trim(),
+    detail: String(item.detail ?? ''),
     createdBy: String(item.createdBy ?? ''),
     status: done ? 'erledigt' : 'offen',
     performedBy: done ? String(item.performedBy ?? '') : '',
     completedAt: done && item.completedAt ? String(item.completedAt).slice(0, 10) : null,
     createdAt: String(item.createdAt || new Date().toISOString()),
   }
+}
+
+function editableDetail(item, previousDetail, actor) {
+  if (actor?.role === 'super' && item.detail != null) return String(item.detail)
+  return String(previousDetail ?? '')
 }
 
 function mergeMaintenances(incoming, previous, actor) {
@@ -416,6 +614,7 @@ function mergeMaintenances(incoming, previous, actor) {
         dueDate: String(item.dueDate),
         intervalWeeks: Number(item.intervalWeeks),
         description: String(item.description ?? '').trim(),
+        detail: String(item.detail ?? ''),
         createdBy: actor.name,
         status: 'offen',
         performedBy: '',
@@ -423,6 +622,7 @@ function mergeMaintenances(incoming, previous, actor) {
         createdAt: new Date().toISOString(),
       }
     }
+    const detail = editableDetail(item, prev.detail, actor)
     const wasDone = prev.status === 'erledigt'
     if (!wasDone && item.status === 'erledigt') {
       if (!actor) throw new Error('Keine Berechtigung')
@@ -432,6 +632,7 @@ function mergeMaintenances(incoming, previous, actor) {
         dueDate: prev.dueDate,
         intervalWeeks: prev.intervalWeeks,
         description: prev.description,
+        detail,
         createdBy: prev.createdBy,
         status: 'erledigt',
         performedBy: actor.name,
@@ -445,6 +646,7 @@ function mergeMaintenances(incoming, previous, actor) {
       dueDate: wasDone ? prev.dueDate : String(item.dueDate),
       intervalWeeks: wasDone ? prev.intervalWeeks : Number(item.intervalWeeks),
       description: wasDone ? prev.description : String(item.description ?? '').trim(),
+      detail,
       createdBy: prev.createdBy,
       status: wasDone ? 'erledigt' : 'offen',
       performedBy: wasDone ? prev.performedBy : '',
@@ -452,6 +654,17 @@ function mergeMaintenances(incoming, previous, actor) {
       createdAt: prev.createdAt,
     }
   })
+}
+
+function preserveNotes(devices, previousDevices, actor) {
+  if (actor?.role === 'super') return devices
+  const previousNotes = new Map(
+    previousDevices.map((device) => [String(device.id), String(device.notes ?? '')]),
+  )
+  return devices.map((device) => ({
+    ...device,
+    notes: previousNotes.has(String(device.id)) ? previousNotes.get(String(device.id)) : '',
+  }))
 }
 
 function persistState(database, state) {
@@ -463,9 +676,9 @@ function persistState(database, state) {
   )
   const insertMaintenance = database.prepare(
     `INSERT INTO maintenances (
-       id, device_id, due_date, interval_weeks, description,
+       id, device_id, due_date, interval_weeks, description, detail,
        created_by, status, performed_by, completed_at, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const insertDocumentation = database.prepare(
     `INSERT INTO documentation
@@ -505,6 +718,7 @@ function persistState(database, state) {
         String(item.dueDate),
         Number(item.intervalWeeks),
         String(item.description ?? '').trim(),
+        String(item.detail ?? ''),
         String(item.createdBy ?? ''),
         item.status === 'erledigt' ? 'erledigt' : 'offen',
         String(item.performedBy ?? ''),
@@ -543,9 +757,11 @@ function seedState(database, state) {
 export function writeState(database, state, actor = null) {
   if (!isState(state)) throw new Error('Ungültige Daten')
   const previous = readState(database)
-  persistState(database, {
+  const next = {
     ...state,
-    devices: prepareDeviceNumbers(state.devices),
+    devices: preserveNotes(prepareDeviceNumbers(state.devices), previous.devices, actor),
     maintenances: mergeMaintenances(state.maintenances, previous.maintenances, actor),
-  })
+  }
+  persistState(database, next)
+  pruneDocuments(database, next)
 }

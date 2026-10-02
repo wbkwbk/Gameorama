@@ -11,6 +11,7 @@ import {
   nextFreeDeviceNumber,
   sortedDocumentation,
   todayISO,
+  updateMaintenanceDetail,
 } from '../src/model.js'
 
 const today = '2026-10-01'
@@ -112,6 +113,47 @@ test('documentation order is newest completion or creation first', () => {
     sortedDocumentation(maintenances, 'd').map((item) => item.id),
     ['done-later', 'open-later', 'done-early', 'old'],
   )
+})
+
+test('a maintenance stores Wartungsbeschrieb separately from the short description', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const seeded = db.maintenances.find((item) => item.id === 'm-flipper-oil')
+  assert.equal(seeded.detail.includes('Schrank A'), true)
+  assert.notEqual(seeded.detail, seeded.description)
+
+  const added = addMaintenance(db, {
+    deviceId: 'd-vr',
+    dueDate: '2026-11-01',
+    intervalWeeks: 2,
+    description: 'Kabel prüfen',
+    detail: 'Stecker lösen und den Kabelzug an der Rückseite prüfen.',
+    createdBy: 'Jonas Keller',
+  })
+  assert.equal(added.ok, true)
+  const created = added.db.maintenances.at(-1)
+  assert.equal(created.detail, 'Stecker lösen und den Kabelzug an der Rückseite prüfen.')
+  assert.notEqual(created.detail, created.description)
+
+  const performed = markPerformed(added.db, created.id, { name: 'Anna Berger' }, today)
+  assert.equal(performed.ok, true)
+  assert.equal(
+    performed.db.maintenances.find((item) => item.id === created.id).detail,
+    created.detail,
+  )
+
+  const edited = updateMaintenanceDetail(performed.db, created.id, 'Neuer Beschrieb mit Link.')
+  assert.equal(edited.ok, true)
+  assert.equal(edited.db.maintenances.find((item) => item.id === created.id).detail, 'Neuer Beschrieb mit Link.')
+  assert.equal(edited.db.maintenances.find((item) => item.id === created.id).description, 'Kabel prüfen')
+
+  const empty = addMaintenance(db, {
+    deviceId: 'd-vr',
+    dueDate: '2026-11-02',
+    intervalWeeks: 2,
+    description: 'Kurz',
+    createdBy: 'Jonas Keller',
+  })
+  assert.equal(empty.db.maintenances.at(-1).detail, '')
 })
 
 test('today uses the local calendar date', () => {

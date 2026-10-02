@@ -188,6 +188,7 @@ export function createSeedDb(now = new Date()) {
   ]
   function openMaintenance(fields, ageMs) {
     return {
+      detail: '',
       ...fields,
       createdBy: 'Jonas Keller',
       status: 'offen',
@@ -203,6 +204,7 @@ export function createSeedDb(now = new Date()) {
       dueDate: addDays(today, -10),
       intervalWeeks: 12,
       description: 'Mechanik ölen und Kugeln prüfen',
+      detail: 'Nur die markierten Lager ölen. Das Handbuch liegt im Schrank A.',
     }, 6 * 86400000),
     openMaintenance({
       id: 'm-flipper-clean',
@@ -353,7 +355,22 @@ export function updateDeviceNotes(db, deviceId, notes) {
   }
 }
 
-export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description, createdBy, createdAt }) {
+export function updateMaintenanceDetail(db, maintenanceId, detail) {
+  if (!db.maintenances.some((item) => item.id === maintenanceId)) {
+    return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
+  }
+  return {
+    ok: true,
+    db: {
+      ...db,
+      maintenances: db.maintenances.map((item) =>
+        item.id === maintenanceId ? { ...item, detail: String(detail ?? '') } : item,
+      ),
+    },
+  }
+}
+
+export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description, detail, createdBy, createdAt }) {
   const text = description.trim()
   const interval = Number(intervalWeeks)
   const creator = String(createdBy ?? '').trim()
@@ -378,6 +395,7 @@ export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, descripti
           dueDate,
           intervalWeeks: interval,
           description: text,
+          detail: String(detail ?? ''),
           createdBy: creator,
           status: 'offen',
           performedBy: '',

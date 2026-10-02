@@ -75,6 +75,42 @@ export async function updateUser(token, username, fields) {
   return response.json()
 }
 
+export async function listDocuments(token, ownerId) {
+  const query = ownerId ? `?owner=${encodeURIComponent(ownerId)}` : ''
+  const response = await fetch(`/api/documents${query}`, { headers: bearer(token) })
+  if (!response.ok) throw new Error(await apiError(response, 'Dokumente konnten nicht geladen werden.'))
+  return response.json()
+}
+
+export async function uploadDocument(token, ownerId, file) {
+  const response = await fetch(
+    `/api/documents?owner=${encodeURIComponent(ownerId)}&filename=${encodeURIComponent(file.name)}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: file,
+    },
+  )
+  if (!response.ok) throw new Error(await apiError(response, 'Dokument konnte nicht hochgeladen werden.'))
+  return response.json()
+}
+
+export async function deleteDocumentRequest(token, id) {
+  const response = await fetch(`/api/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Dokument konnte nicht gelöscht werden.'))
+  return response.json()
+}
+
+export function documentHref(id, token) {
+  return `/api/documents/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`
+}
+
 export async function deleteUser(token, username) {
   const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
     method: 'DELETE',

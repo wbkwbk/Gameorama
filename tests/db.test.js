@@ -1,10 +1,20 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
-import { isState, openDatabase, readState, writeState } from '../server/db.js'
+import {
+  describeUpload,
+  isState,
+  listDocuments,
+  openDatabase,
+  readState,
+  resolveUploadPath,
+  saveDocument,
+  uploadsDirectory,
+  writeState,
+} from '../server/db.js'
 import { startServer } from '../server/index.js'
 import { hashPassword, verifyPassword } from '../server/passwords.js'
 import { markPerformed } from '../src/model.js'
@@ -514,6 +524,199 @@ test('Erfasser and Durchgeführt durch come from the session', async () => {
     assert.equal(finished.dueDate, originalDue)
     assert.equal(finished.createdBy, 'Jonas Keller')
     assert.equal(after.devices.find((device) => device.id === 'd-flipper').number, 1)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a maintenance stores Wartungsbeschrieb and documents survive state saves', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server, database } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    assert.throws(() => describeUpload('../geheim.txt'), /Ungültiger Dateiname/)
+    assert.throws(() => describeUpload('skript.exe'), /Dateityp ist nicht erlaubt/)
+    assert.throws(() => resolveUploadPath(uploadsDirectory(database), '../geheim.txt'), /Ungültiger Dateiname/)
+
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const anna = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'anna', password: 'wartung' }),
+    }).then((response) => response.json())
+
+    const state = await fetch(`${base}/api/state`).then((response) => response.json())
+    state.maintenances.push({
+      id: 'm-detail',
+      deviceId: 'd-vr',
+      dueDate: '2026-12-15',
+      intervalWeeks: 4,
+      description: 'Linsen reinigen',
+      detail: 'Mikrofasertuch verwenden und die Linsen nicht trocken reiben.',
+      createdBy: 'Hacker',
+      status: 'offen',
+    })
+    const createdResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(state),
+    })
+    assert.equal(createdResponse.status, 200)
+    const created = await createdResponse.json()
+    const maintenance = created.maintenances.find((item) => item.id === 'm-detail')
+    assert.equal(maintenance.detail, 'Mikrofasertuch verwenden und die Linsen nicht trocken reiben.')
+    assert.equal(maintenance.description, 'Linsen reinigen')
+
+    const tampered = structuredClone(created)
+    const tamperedItem = tampered.maintenances.find((item) => item.id === 'm-detail')
+    tamperedItem.detail = 'Anna ändert den Beschrieb'
+    tampered.devices.find((device) => device.id === 'd-vr').notes = 'Anna ändert die Bemerkung'
+    const tamperedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(tampered),
+    })
+    assert.equal(tamperedResponse.status, 200)
+    const kept = await tamperedResponse.json()
+    assert.equal(
+      kept.maintenances.find((item) => item.id === 'm-detail').detail,
+      maintenance.detail,
+    )
+    assert.equal(kept.devices.find((device) => device.id === 'd-vr').notes.includes('Anna'), false)
+
+    const upload = await fetch(
+      `${base}/api/documents?owner=m-detail&filename=${encodeURIComponent('Anleitung.txt')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/octet-stream' },
+        body: 'Linsen nur feucht reinigen.',
+      },
+    )
+    assert.equal(upload.status, 200)
+    const savedDoc = await upload.json()
+    assert.equal(savedDoc.originalName, 'Anleitung.txt')
+    assert.equal(savedDoc.ownerId, 'm-detail')
+    assert.equal(savedDoc.mimeType, 'text/plain')
+
+    const row = database
+      .prepare('SELECT id, owner_id, original_name, stored_name, mime_type FROM documents WHERE id = ?')
+      .get(savedDoc.id)
+    assert.equal(row.original_name, 'Anleitung.txt')
+    assert.equal(row.owner_id, 'm-detail')
+    assert.equal(row.mime_type, 'text/plain')
+    assert.match(row.stored_name, /^[a-f0-9]{32}\.txt$/)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), row.stored_name)), true)
+
+    const listedResponse = await fetch(`${base}/api/documents?owner=m-detail`, {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    })
+    assert.equal(listedResponse.status, 200)
+    const listed = await listedResponse.json()
+    assert.equal(listed.length, 1)
+    assert.equal(listed[0].originalName, 'Anleitung.txt')
+    assert.equal(listed[0].storedName, undefined)
+    assert.deepEqual(listDocuments(database, 'm-detail').map((item) => item.id), [savedDoc.id])
+
+    const roundTrip = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(kept),
+    })
+    assert.equal(roundTrip.status, 200)
+    assert.equal(listDocuments(database, 'm-detail').length, 1)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), row.stored_name)), true)
+
+    const standardUpload = await fetch(
+      `${base}/api/documents?owner=m-detail&filename=${encodeURIComponent('Anna.txt')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${anna.token}`, 'Content-Type': 'application/octet-stream' },
+        body: 'darf nicht',
+      },
+    )
+    assert.equal(standardUpload.status, 403)
+    assert.equal(listDocuments(database, 'm-detail').length, 1)
+    const anonymousUpload = await fetch(
+      `${base}/api/documents?owner=m-detail&filename=offen.txt`,
+      { method: 'POST', body: 'nein' },
+    )
+    assert.equal(anonymousUpload.status, 403)
+
+    const blockedOpen = await fetch(`${base}/api/documents/${savedDoc.id}`)
+    assert.equal(blockedOpen.status, 401)
+    const opened = await fetch(`${base}/api/documents/${savedDoc.id}`, {
+      headers: { Authorization: `Bearer ${anna.token}` },
+    })
+    assert.equal(opened.status, 200)
+    assert.match(opened.headers.get('content-disposition'), /^inline;/i)
+    assert.match(opened.headers.get('content-disposition'), /Anleitung\.txt/)
+    assert.equal(await opened.text(), 'Linsen nur feucht reinigen.')
+
+    const rejected = await fetch(
+      `${base}/api/documents?owner=d-vr&filename=${encodeURIComponent('virus.exe')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}` },
+        body: 'nope',
+      },
+    )
+    assert.equal(rejected.status, 400)
+    assert.match((await rejected.json()).error, /Dateityp ist nicht erlaubt/)
+    const traversal = await fetch(
+      `${base}/api/documents?owner=d-vr&filename=${encodeURIComponent('../geheim.txt')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}` },
+        body: 'geheim',
+      },
+    )
+    assert.equal(traversal.status, 400)
+    assert.equal(readdirSync(dir).some((name) => name.includes('geheim')), false)
+
+    const docx = await fetch(
+      `${base}/api/documents?owner=d-vr&filename=${encodeURIComponent('Plan.docx')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}` },
+        body: 'PK',
+      },
+    )
+    assert.equal(docx.status, 200)
+    const docxMeta = await docx.json()
+    const downloaded = await fetch(`${base}/api/documents/${docxMeta.id}?token=${anna.token}`)
+    assert.equal(downloaded.status, 200)
+    assert.match(downloaded.headers.get('content-disposition'), /^attachment;/i)
+
+    const standardDelete = await fetch(`${base}/api/documents/${savedDoc.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${anna.token}` },
+    })
+    assert.equal(standardDelete.status, 403)
+
+    const removedState = structuredClone(kept)
+    removedState.maintenances = removedState.maintenances.filter((item) => item.id !== 'm-detail')
+    const removedResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(removedState),
+    })
+    assert.equal(removedResponse.status, 200)
+    assert.equal(listDocuments(database, 'm-detail').length, 0)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), row.stored_name)), false)
+    assert.equal(listDocuments(database, 'd-vr').some((item) => item.id === docxMeta.id), true)
+
+    const tooBig = Buffer.alloc(15 * 1024 * 1024 + 1, 1)
+    assert.throws(
+      () => saveDocument(database, { ownerId: 'd-vr', filename: 'gross.txt', bytes: tooBig }),
+      /zu gross/,
+    )
   } finally {
     await new Promise((resolve) => server.close(resolve))
     rmSync(dir, { recursive: true, force: true })

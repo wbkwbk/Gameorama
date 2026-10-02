@@ -10,6 +10,7 @@ import {
   roleLabel,
   todayISO,
   updateDeviceNotes,
+  updateMaintenanceDetail,
 } from './model.js'
 import { clearSession, loadDb, loadSession, loginRequest, logoutRequest, saveDb, saveSession } from './storage.js'
 import LoginScreen from './screens/LoginScreen.jsx'
@@ -217,6 +218,14 @@ export default function App() {
               })
             }}
             onSaveNotes={(notes) => commit(updateDeviceNotes(db, device.id, notes))}
+            onSaveDetail={(maintenanceId, detail) => {
+              const result = updateMaintenanceDetail(db, maintenanceId, detail)
+              if (!result.ok) {
+                setNotice({ tone: 'error', text: result.error })
+                return
+              }
+              commit(result.db)
+            }}
             onAddMaintenance={(input) => {
               const result = addMaintenance(db, { ...input, deviceId: device.id, createdBy: user.name })
               if (!result.ok) return result.error
@@ -227,7 +236,7 @@ export default function App() {
             onDeleteMaintenance={(maintenanceId, description) => {
               askConfirm({
                 title: 'Wartung löschen',
-                message: `«${description}» wird aus der Liste entfernt. Bestehende Dokumentationseinträge bleiben erhalten.`,
+                message: `«${description}» wird aus der Liste entfernt. Dokumente dieser Wartung werden gelöscht. Bestehende Dokumentationseinträge bleiben erhalten.`,
                 confirmLabel: 'Löschen',
                 action: () => {
                   commit(deleteMaintenance(db, maintenanceId))

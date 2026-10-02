@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import Attachments from '../Attachments.jsx'
+import { listDocuments } from '../storage.js'
 import {
   addWeeks,
   deviceStatus,
@@ -7,6 +9,73 @@ import {
   sortedDocumentation,
   todayISO,
 } from '../model.js'
+
+function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocuments }) {
+  const [text, setText] = useState(item.detail || '')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    setText(item.detail || '')
+    setSaved(false)
+  }, [item.id])
+
+  useEffect(() => {
+    setText(item.detail || '')
+  }, [item.detail])
+
+  return (
+    <div className="maint-detail">
+      {isSuper ? (
+        <div className="detail-editor">
+          <textarea
+            aria-label={`Wartungsbeschrieb für ${item.description}`}
+            value={text}
+            rows={4}
+            onChange={(event) => {
+              setText(event.target.value)
+              setSaved(false)
+            }}
+          />
+          <button
+            type="button"
+            className="btn tiny secondary"
+            onClick={() => {
+              onSave(item.id, text)
+              setSaved(true)
+            }}
+          >
+            Speichern
+          </button>
+          {saved && <p className="form-ok">Gespeichert.</p>}
+        </div>
+      ) : (
+        <p className="detail-read">{item.detail?.trim() ? item.detail : 'Kein Wartungsbeschrieb.'}</p>
+      )}
+      <Attachments
+        ownerId={item.id}
+        documents={documents}
+        token={token}
+        isSuper={isSuper}
+        onChange={onDocuments}
+      />
+    </div>
+  )
+}
+
+function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments }) {
+  return (
+    <div className="maint-detail">
+      <p className="detail-read">{item.detail?.trim() ? item.detail : 'Kein Wartungsbeschrieb.'}</p>
+      <Attachments
+        ownerId={item.id}
+        documents={documents}
+        token={token}
+        isSuper={isSuper}
+        onChange={onDocuments}
+      />
+    </div>
+  )
+}
 
 export default function DeviceScreen({
   db,
@@ -18,18 +87,39 @@ export default function DeviceScreen({
   onBack,
   onDone,
   onSaveNotes,
+  onSaveDetail,
   onAddMaintenance,
   onDeleteMaintenance,
   onDeleteDevice,
 }) {
   const [notes, setNotes] = useState(device.notes)
   const [notesSaved, setNotesSaved] = useState(false)
+  const [documents, setDocuments] = useState([])
   const [form, setForm] = useState({
     dueDate: addWeeks(todayISO(), 4),
     intervalWeeks: 4,
     description: '',
+    detail: '',
   })
   const [formError, setFormError] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    listDocuments(user.token)
+      .then((rows) => {
+        if (active) setDocuments(rows)
+      })
+      .catch(() => {
+        if (active) setDocuments([])
+      })
+    return () => {
+      active = false
+    }
+  }, [user.token])
+
+  async function reloadDocuments() {
+    setDocuments(await listDocuments(user.token))
+  }
 
   useEffect(() => {
     setNotes(device.notes)
@@ -56,10 +146,11 @@ export default function DeviceScreen({
       dueDate: form.dueDate,
       intervalWeeks: Number(form.intervalWeeks),
       description: form.description,
+      detail: form.detail,
     })
     setFormError(error)
     if (!error) {
-      setForm({ dueDate: addWeeks(todayISO(), 4), intervalWeeks: 4, description: '' })
+      setForm({ dueDate: addWeeks(todayISO(), 4), intervalWeeks: 4, description: '', detail: '' })
     }
   }
 
@@ -101,6 +192,7 @@ export default function DeviceScreen({
                   <th>Fällig am</th>
                   <th>Intervall in Wochen</th>
                   <th>Wartungsbeschreibung</th>
+                  <th>Wartungsbeschrieb</th>
                   <th>Erfasser der Wartung</th>
                   <th>Wartungstatus</th>
                   <th>Wartung durchgeführt durch</th>
@@ -116,6 +208,16 @@ export default function DeviceScreen({
                       <td>{formatDisplayDate(item.dueDate)}</td>
                       <td>{item.intervalWeeks}</td>
                       <td>{item.description}</td>
+                      <td>
+                        <MaintenanceDetail
+                          item={item}
+                          isSuper={isSuper}
+                          documents={documents}
+                          token={user.token}
+                          onSave={onSaveDetail}
+                          onDocuments={reloadDocuments}
+                        />
+                      </td>
                       <td>{item.createdBy}</td>
                       <td>
                         <span className={`maint-status ${open ? 'offen' : 'erledigt'}`}>
@@ -170,6 +272,13 @@ export default function DeviceScreen({
         ) : (
           <p className="notes-read">{notes.trim() ? notes : 'Keine Bemerkungen hinterlegt.'}</p>
         )}
+        <Attachments
+          ownerId={device.id}
+          documents={documents}
+          token={user.token}
+          isSuper={isSuper}
+          onChange={reloadDocuments}
+        />
       </section>
 
       {isSuper && (
@@ -209,6 +318,17 @@ export default function DeviceScreen({
                 required
               />
             </label>
+            <label className="wide">
+              Wartungsbeschrieb
+              <textarea
+                value={form.detail}
+                rows={4}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, detail: event.target.value }))
+                }
+                placeholder="Ausführlicher Beschrieb zur Wartung"
+              />
+            </label>
             <button type="submit" className="btn secondary">Wartung hinzufügen</button>
             {formError && <p className="form-error">{formError}</p>}
           </form>
@@ -228,6 +348,7 @@ export default function DeviceScreen({
                   <th>Fällig am</th>
                   <th>Intervall in Wochen</th>
                   <th>Wartungsbeschreibung</th>
+                  <th>Wartungsbeschrieb</th>
                   <th>Erfasser der Wartung</th>
                   <th>Wartungstatus</th>
                   <th>Wartung durchgeführt durch</th>
@@ -240,6 +361,15 @@ export default function DeviceScreen({
                     <td>{formatDisplayDate(item.dueDate)}</td>
                     <td>{item.intervalWeeks}</td>
                     <td>{item.description}</td>
+                    <td>
+                      <MaintenanceDetailRead
+                        item={item}
+                        documents={documents}
+                        token={user.token}
+                        isSuper={isSuper}
+                        onDocuments={reloadDocuments}
+                      />
+                    </td>
                     <td>{item.createdBy}</td>
                     <td>
                       <span className={`maint-status ${item.status === 'erledigt' ? 'erledigt' : 'offen'}`}>
