@@ -191,7 +191,6 @@ export default function DeviceScreen({
   notice,
   onBack,
   onDone,
-  onSaveNotes,
   onSaveDetail,
   onAddMaintenance,
   onDeleteMaintenance,
@@ -201,8 +200,6 @@ export default function DeviceScreen({
   onDeleteDocumentation,
   onDeleteDevice,
 }) {
-  const [notes, setNotes] = useState(device.notes)
-  const [notesSaved, setNotesSaved] = useState(false)
   const [documents, setDocuments] = useState([])
   const [form, setForm] = useState({
     dueDate: addWeeks(todayISO(), 4),
@@ -230,25 +227,10 @@ export default function DeviceScreen({
     setDocuments(await listDocuments(user.token))
   }
 
-  useEffect(() => {
-    setNotes(device.notes)
-    setNotesSaved(false)
-  }, [device.id])
-
-  useEffect(() => {
-    setNotes(device.notes)
-  }, [device.notes])
-
   const status = deviceStatus(device.id, db.maintenances, today)
   const maintenances = openMaintenances(db.maintenances, device.id)
   const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
-
-  function saveNotes(event) {
-    event.preventDefault()
-    onSaveNotes(notes)
-    setNotesSaved(true)
-  }
 
   function submitMaintenance(event) {
     event.preventDefault()
@@ -375,36 +357,6 @@ export default function DeviceScreen({
             </table>
           </div>
         )}
-      </ResizableCard>
-
-      <ResizableCard as="section" storageKey={`device-notes:${device.id}`} label="Bemerkungen und Links">
-        <h2>Bemerkungen und Links</h2>
-        {isSuper ? (
-          <form onSubmit={saveNotes} className="notes-form">
-            <label>
-              Freitext und Verweise
-              <textarea
-                value={notes}
-                onChange={(event) => {
-                  setNotes(event.target.value)
-                  setNotesSaved(false)
-                }}
-                rows={5}
-              />
-            </label>
-            <button type="submit" className="btn secondary">Speichern</button>
-            {notesSaved && <p className="form-ok">Gespeichert.</p>}
-          </form>
-        ) : (
-          <p className="notes-read">{notes.trim() ? notes : 'Keine Bemerkungen hinterlegt.'}</p>
-        )}
-        <Attachments
-          ownerId={device.id}
-          documents={documents}
-          token={user.token}
-          isSuper={isSuper}
-          onChange={reloadDocuments}
-        />
       </ResizableCard>
 
       {isSuper && (

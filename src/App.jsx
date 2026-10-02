@@ -13,7 +13,6 @@ import {
   renameGroup,
   roleLabel,
   todayISO,
-  updateDeviceNotes,
   updateMaintenanceDetail,
 } from './model.js'
 import {
@@ -266,7 +265,6 @@ export default function App() {
                 text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
               })
             }}
-            onSaveNotes={(notes) => commit(updateDeviceNotes(db, device.id, notes))}
             onSaveDetail={(maintenanceId, detail) => {
               const result = updateMaintenanceDetail(db, maintenanceId, detail)
               if (!result.ok) {

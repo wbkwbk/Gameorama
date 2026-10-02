@@ -383,14 +383,14 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
 }
 .pill.level-none { background: #8d877c; }
 
-.inline-form, .maintenance-form, .notes-form {
+.inline-form, .maintenance-form {
   display: flex;
   flex-wrap: wrap;
   gap: 0.7rem;
   align-items: end;
   margin-top: 0.9rem;
 }
-.inline-form label, .maintenance-form label, .notes-form label { flex: 1 1 14rem; }
+.inline-form label, .maintenance-form label { flex: 1 1 14rem; }
 .number-field { flex: 0 1 8.5rem; }
 .maintenance-form .grow { flex: 2 1 18rem; }
 .maintenance-form .wide { flex: 1 1 100%; }
@@ -502,7 +502,6 @@ tr.level-ok td { background: #f7fbf8; }
 .maint-transfer label { font-size: 0.82rem; }
 .maint-note { color: var(--muted); font-size: 0.78rem; font-weight: 600; }
 .maint-transfer .btn.ghost { color: var(--navy); border: 1px solid var(--line); }
-.notes-read { white-space: pre-wrap; margin-top: 0.7rem; }
 
 .modal-backdrop {
   position: fixed;

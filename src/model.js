@@ -428,15 +428,6 @@ export function deleteDevice(db, deviceId) {
   }
 }
 
-export function updateDeviceNotes(db, deviceId, notes) {
-  return {
-    ...db,
-    devices: db.devices.map((device) =>
-      device.id === deviceId ? { ...device, notes } : device,
-    ),
-  }
-}
-
 export function maintenanceEditError(fields) {
   const description = String(fields?.description ?? '').trim()
   const dueDate = String(fields?.dueDate ?? '').trim()
