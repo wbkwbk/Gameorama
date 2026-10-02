@@ -172,14 +172,6 @@ input, textarea, select {
 textarea { resize: vertical; }
 .form-error { color: var(--overdue); font-weight: 600; }
 .form-ok { color: var(--ok); font-weight: 600; }
-.demo-accounts {
-  margin-top: 1.4rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-}
-.demo-accounts ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
-code { color: var(--navy); font-weight: 700; }
 
 main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
 .board-head, .device-title, .group-head {
@@ -364,13 +356,21 @@ main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
   color: var(--muted);
   white-space: nowrap;
 }
+.device-name .device-number,
+.device-title h1 .device-number {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
 .device-title h1 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.55rem;
 }
-.device-title h1 .device-number { margin-left: 0; font-size: 1.05rem; }
+.device-title h1 .device-number { margin-left: 0; }
 .device-meta { grid-column: 2; color: var(--muted); }
 .pill {
   justify-self: start;
@@ -488,7 +488,6 @@ tr.level-ok td { background: #f7fbf8; }
 }
 .maint-status.offen { background: var(--soon-bg); color: var(--soon); }
 .maint-status.erledigt { background: var(--ok-bg); color: var(--ok); }
-.legacy-title { margin-top: 1.2rem; font-size: 1.05rem; }
 td .done-btn + .btn.tiny,
 td .btn.tiny + .btn.tiny { margin-top: 0.4rem; }
 .maint-transfer { margin-top: 0.55rem; min-width: 16rem; max-width: 20rem; }

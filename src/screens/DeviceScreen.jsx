@@ -241,7 +241,6 @@ export default function DeviceScreen({
   const maintenances = openMaintenances(db.maintenances, device.id)
   const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
-  const legacy = db.documentation.filter((item) => item.deviceId === device.id)
 
   function saveNotes(event) {
     event.preventDefault()
@@ -452,7 +451,7 @@ export default function DeviceScreen({
       <ResizableCard as="section" storageKey={`device-docs:${device.id}`} label="Dokumentationsbereich">
         <h2>Dokumentationsbereich</h2>
         <p className="muted">Erledigte Wartungen, die neueste Durchführung zuerst.</p>
-        {documentation.length === 0 && legacy.length === 0 && (
+        {documentation.length === 0 && (
           <p className="empty">Noch keine erledigte Wartung.</p>
         )}
         {documentation.length > 0 && (
@@ -495,33 +494,6 @@ export default function DeviceScreen({
               </tbody>
             </table>
           </div>
-        )}
-        {legacy.length > 0 && (
-          <>
-            <h3 className="legacy-title">Bisherige Einträge</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Datum</th>
-                    <th>Wartungsnummer</th>
-                    <th>Benutzer Name</th>
-                    <th>Wartung</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {legacy.map((entry) => (
-                    <tr key={entry.id}>
-                      <td>{formatDisplayDate(entry.date)}</td>
-                      <td>{entry.number}</td>
-                      <td>{entry.userName}</td>
-                      <td>{entry.description}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
         )}
       </ResizableCard>
     </div>

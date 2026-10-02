@@ -610,7 +610,7 @@ function followUpMatches(item, completion) {
     Number(item.intervalWeeks) === interval &&
     String(item.description ?? '').trim() === completion.description &&
     String(item.detail ?? '') === String(completion.detail ?? '') &&
-    String(item.dueDate) === addWeeks(completion.completedAt, interval)
+    String(item.dueDate) === addWeeks(completion.dueDate, interval)
   )
 }
 
@@ -627,6 +627,7 @@ function mergeMaintenances(incoming, previous, actor) {
       description: String(prev.description ?? '').trim(),
       detail: editableDetail(item, prev.detail, actor),
       completedAt: completionDate(item.completedAt),
+      dueDate: String(prev.dueDate),
     })
   }
   const available = completions.slice()
@@ -656,7 +657,7 @@ function mergeMaintenances(incoming, previous, actor) {
       return {
         id: String(item.id),
         deviceId: completion.deviceId,
-        dueDate: addWeeks(completion.completedAt, interval),
+        dueDate: addWeeks(completion.dueDate, interval),
         intervalWeeks: interval,
         description: completion.description,
         detail: String(completion.detail ?? ''),

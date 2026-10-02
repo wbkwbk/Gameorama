@@ -67,7 +67,7 @@ test('Durchgeführt sets erledigt, creates an open copy, and leaves erledigt out
   assert.equal(copy.completedAt, null)
   assert.equal(copy.createdBy, 'Anna Berger')
   assert.equal(copy.deviceId, 'd-klima')
-  assert.equal(copy.dueDate, addWeeks(today, original.intervalWeeks))
+  assert.equal(copy.dueDate, addWeeks(original.dueDate, original.intervalWeeks))
   assert.equal(copy.intervalWeeks, original.intervalWeeks)
   assert.equal(copy.description, original.description)
   assert.equal(copy.detail, original.detail)
@@ -246,6 +246,43 @@ test('device lists sort by urgency and then by name', () => {
   assert.deepEqual(devices.map((device) => device.id)[0], 'zulu')
 })
 
+test('device lists sort by number ascending and descending', () => {
+  const devices = [
+    { id: 'c', name: 'C', number: 12 },
+    { id: 'a', name: 'A', number: 2 },
+    { id: 'b', name: 'B', number: 2 },
+    { id: 'd', name: 'D', number: 7 },
+  ]
+  assert.deepEqual(
+    sortDevices(devices, [], today, 'number-asc').map((device) => device.id),
+    ['a', 'b', 'd', 'c'],
+  )
+  assert.deepEqual(
+    sortDevices(devices, [], today, 'number-desc').map((device) => device.id),
+    ['c', 'd', 'a', 'b'],
+  )
+})
+
+test('the next open due date is the completed due date plus the interval', () => {
+  assert.equal(addWeeks('2026-10-30', 4), '2026-11-27')
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const prepared = {
+    ...db,
+    maintenances: db.maintenances.map((item) =>
+      item.id === 'm-klima' ? { ...item, dueDate: '2026-10-30', intervalWeeks: 4 } : item,
+    ),
+  }
+  const result = markPerformed(prepared, 'm-klima', { name: 'Anna Berger' }, '2026-10-02')
+  assert.equal(result.ok, true)
+  const successor = openMaintenances(result.db.maintenances, 'd-klima')[0]
+  assert.equal(successor.status, 'offen')
+  assert.equal(successor.dueDate, '2026-11-27')
+  assert.equal(successor.intervalWeeks, 4)
+  const completed = result.db.maintenances.find((item) => item.id === 'm-klima')
+  assert.equal(completed.status, 'erledigt')
+  assert.equal(completed.dueDate, '2026-10-30')
+})
+
 test('rename group and move device keep the maintenance records', () => {
   const db = createSeedDb(new Date(2026, 9, 1))
   const renamed = renameGroup(db, 'g-arcade', '  Spielautomaten  ')
@@ -279,7 +316,7 @@ test('move maintenance keeps completion state and leaves the source device', () 
   assert.equal(item.dueDate, done.db.maintenances.find((entry) => entry.id === 'm-klima').dueDate)
   const successor = moved.db.maintenances.find((entry) => entry.deviceId === 'd-klima')
   assert.equal(successor.status, 'offen')
-  assert.equal(successor.dueDate, addWeeks(today, item.intervalWeeks))
+  assert.equal(successor.dueDate, addWeeks(item.dueDate, item.intervalWeeks))
   assert.equal(moved.db.maintenances.filter((entry) => entry.deviceId === 'd-klima' && entry.status === 'erledigt').length, 0)
   assert.equal(moveMaintenance(db, 'missing', 'd-vr').ok, false)
   assert.equal(moveMaintenance(db, 'm-klima', 'missing').ok, false)

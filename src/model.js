@@ -67,12 +67,28 @@ function compareDeviceNames(a, b) {
   return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'de', { sensitivity: 'accent' })
 }
 
+function compareDeviceNumbers(a, b) {
+  const left = Number(a.number)
+  const right = Number(b.number)
+  if (Number.isFinite(left) && Number.isFinite(right) && left !== right) return left - right
+  return compareDeviceNames(a, b)
+}
+
 const URGENCY_ORDER = { overdue: 0, soon: 1, ok: 2, none: 3 }
 
 export function sortDevices(devices, maintenances, today, mode = 'due') {
   const list = devices.slice()
   if (mode === 'name-asc') return list.sort(compareDeviceNames)
   if (mode === 'name-desc') return list.sort((a, b) => compareDeviceNames(b, a))
+  if (mode === 'number-asc') return list.sort(compareDeviceNumbers)
+  if (mode === 'number-desc') {
+    return list.sort((a, b) => {
+      const left = Number(a.number)
+      const right = Number(b.number)
+      if (Number.isFinite(left) && Number.isFinite(right) && left !== right) return right - left
+      return compareDeviceNames(a, b)
+    })
+  }
   return list.sort((a, b) => {
     const left = URGENCY_ORDER[deviceStatus(a.id, maintenances, today).level]
     const right = URGENCY_ORDER[deviceStatus(b.id, maintenances, today).level]
@@ -306,7 +322,7 @@ export function markPerformed(db, maintenanceId, user, today) {
   const next = {
     id: uid(),
     deviceId: maintenance.deviceId,
-    dueDate: addWeeks(today, maintenance.intervalWeeks),
+    dueDate: addWeeks(maintenance.dueDate, maintenance.intervalWeeks),
     intervalWeeks: maintenance.intervalWeeks,
     description: maintenance.description,
     detail: String(maintenance.detail ?? ''),

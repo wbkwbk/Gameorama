@@ -54,13 +54,6 @@ export default function LoginScreen({ onLogin }) {
           {error && <p className="form-error" role="alert">{error}</p>}
           <button type="submit" className="btn primary">Anmelden</button>
         </form>
-        <div className="demo-accounts">
-          <p>Demozugänge</p>
-          <ul>
-            <li><code>anna</code> / <code>wartung</code> — Standard Benutzer</li>
-            <li><code>admin</code> / <code>super</code> — Super Benutzer</li>
-          </ul>
-        </div>
       </section>
     </div>
   )

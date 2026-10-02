@@ -8,7 +8,15 @@ const SORT_KEY = 'gameorama-device-sort'
 function readDeviceSort() {
   try {
     const value = window.localStorage.getItem(SORT_KEY)
-    if (value === 'name-asc' || value === 'name-desc' || value === 'due') return value
+    if (
+      value === 'name-asc' ||
+      value === 'name-desc' ||
+      value === 'number-asc' ||
+      value === 'number-desc' ||
+      value === 'due'
+    ) {
+      return value
+    }
   } catch {
     // Die Vorgabe gilt, wenn der Browser keinen Speicher freigibt.
   }
@@ -121,6 +129,8 @@ export default function OverviewScreen({
                   >
                     <option value="name-asc">Gerätename aufsteigend</option>
                     <option value="name-desc">Gerätename absteigend</option>
+                    <option value="number-asc">Nummer aufsteigend</option>
+                    <option value="number-desc">Nummer absteigend</option>
                     <option value="due">Wartungsdatum</option>
                   </select>
                 </label>

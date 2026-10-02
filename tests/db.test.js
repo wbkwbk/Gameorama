@@ -73,7 +73,7 @@ test('maintenance changes survive a round trip through SQLite', () => {
     assert.equal(successor.completedAt, null)
     assert.equal(successor.createdBy, 'Anna Berger')
     assert.equal(successor.deviceId, 'd-klima')
-    assert.equal(successor.dueDate, addWeeks('2026-10-01', source.intervalWeeks))
+    assert.equal(successor.dueDate, addWeeks(source.dueDate, source.intervalWeeks))
     assert.equal(successor.intervalWeeks, source.intervalWeeks)
     assert.equal(successor.description, source.description)
     assert.equal(successor.detail, source.detail)
@@ -99,6 +99,38 @@ test('maintenance changes survive a round trip through SQLite', () => {
       createdAt: '2026-10-01T12:00:00.000Z',
     })
     assert.throws(() => writeState(database, extra, user), /Keine Berechtigung/)
+    database.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('marking a maintenance done schedules the next due date from the old due date', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  try {
+    const database = openDatabase(file)
+    const before = readState(database)
+    const edited = structuredClone(before)
+    const klima = edited.maintenances.find((item) => item.id === 'm-klima')
+    klima.dueDate = '2026-10-30'
+    klima.intervalWeeks = 4
+    writeState(database, edited, { name: 'Jonas Keller', role: 'super' })
+    const stored = readState(database)
+    const result = markPerformed(stored, 'm-klima', { name: 'Anna Berger', role: 'standard' }, '2026-10-02')
+    assert.equal(result.ok, true)
+    writeState(database, result.db, { name: 'Anna Berger', role: 'standard' })
+    const after = readState(database)
+    const completed = after.maintenances.find((item) => item.id === 'm-klima')
+    assert.equal(completed.status, 'erledigt')
+    assert.equal(completed.dueDate, '2026-10-30')
+    assert.equal(completed.completedAt, '2026-10-02')
+    const successor = openMaintenances(after.maintenances, 'd-klima')[0]
+    assert.equal(successor.status, 'offen')
+    assert.equal(successor.dueDate, '2026-11-27')
+    assert.equal(successor.dueDate, addWeeks('2026-10-30', 4))
+    assert.notEqual(successor.dueDate, addWeeks('2026-10-02', 4))
+    assert.equal(successor.intervalWeeks, 4)
     database.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
