@@ -34,9 +34,15 @@ export function trackPointer(event, onMove) {
   handle.addEventListener('pointercancel', end)
 }
 
+function startingBounds(minReadable) {
+  const viewport = typeof window === 'undefined' ? 8192 : window.innerWidth
+  const max = Math.max(viewport, minReadable)
+  return { min: Math.min(minReadable, max), max }
+}
+
 export function useHorizontalResize(storageKey, { minReadable = MIN_PANEL_WIDTH } = {}) {
   const ref = useRef(null)
-  const boundsRef = useRef({ min: minReadable, max: minReadable })
+  const boundsRef = useRef(startingBounds(minReadable))
   const [bounds, setBounds] = useState(boundsRef.current)
   const [preferred, setPreferred] = useState(() => readPanelSize(storageKey).width ?? null)
   const [measured, setMeasured] = useState(0)

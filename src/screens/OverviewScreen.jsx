@@ -7,8 +7,8 @@ function DeviceListFrame({ children, itemKey, storageKey, label }) {
   const frameRef = useRef(null)
   const listRef = useRef(null)
   const widthApi = usePanelResize()
-  const [height, setHeight] = useState(() => readPanelSize(storageKey).height ?? null)
-  const resizedRef = useRef(height != null)
+  const preferredHeightRef = useRef(readPanelSize(storageKey).height ?? null)
+  const [height, setHeight] = useState(preferredHeightRef.current)
   const boundsRef = useRef({ min: 160, max: 640 })
   const [bounds, setBounds] = useState(boundsRef.current)
 
@@ -34,10 +34,11 @@ function DeviceListFrame({ children, itemKey, storageKey, label }) {
       setBounds((current) =>
         current.min === nextBounds.min && current.max === nextBounds.max ? current : nextBounds,
       )
+      const preferred = preferredHeightRef.current
       setHeight((current) => {
-        const next = !resizedRef.current || current == null
+        const next = preferred == null
           ? nextBounds.min
-          : Math.min(nextBounds.max, Math.max(nextBounds.min, current))
+          : Math.min(nextBounds.max, Math.max(nextBounds.min, preferred))
         return current === next ? current : next
       })
     }
@@ -61,7 +62,7 @@ function DeviceListFrame({ children, itemKey, storageKey, label }) {
 
   function commitHeight(value) {
     const next = clamp(value)
-    resizedRef.current = true
+    preferredHeightRef.current = next
     setHeight(next)
     writePanelSize(storageKey, { height: next })
     return next
