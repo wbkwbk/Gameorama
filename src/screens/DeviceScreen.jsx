@@ -8,6 +8,7 @@ import {
   deviceStatus,
   formatDisplayDate,
   maintenanceStatus,
+  openMaintenances,
   sortedDocumentation,
   todayISO,
 } from '../model.js'
@@ -161,7 +162,7 @@ function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
   )
 }
 
-function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments, storageKey }) {
+function MaintenanceDetailRead({ item, documents, token, storageKey }) {
   return (
     <ResizableCard
       className="maint-detail"
@@ -174,8 +175,8 @@ function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments, s
         ownerId={item.id}
         documents={documents}
         token={token}
-        isSuper={isSuper}
-        onChange={onDocuments}
+        isSuper={false}
+        onChange={() => {}}
       />
     </ResizableCard>
   )
@@ -237,10 +238,7 @@ export default function DeviceScreen({
   }, [device.notes])
 
   const status = deviceStatus(device.id, db.maintenances, today)
-  const maintenances = db.maintenances
-    .filter((item) => item.deviceId === device.id)
-    .slice()
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const maintenances = openMaintenances(db.maintenances, device.id)
   const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
   const legacy = db.documentation.filter((item) => item.deviceId === device.id)
@@ -312,10 +310,9 @@ export default function DeviceScreen({
               </thead>
               <tbody>
                 {maintenances.map((item) => {
-                  const open = item.status !== 'erledigt'
-                  const itemStatus = open ? maintenanceStatus(item, today) : null
+                  const itemStatus = maintenanceStatus(item, today)
                   return (
-                    <tr key={item.id} className={itemStatus ? `level-${itemStatus.level}` : undefined}>
+                    <tr key={item.id} className={`level-${itemStatus.level}`}>
                       <td>{formatDisplayDate(item.dueDate)}</td>
                       <td>{item.intervalWeeks}</td>
                       <td>{item.description}</td>
@@ -332,18 +329,14 @@ export default function DeviceScreen({
                       </td>
                       <td>{item.createdBy}</td>
                       <td>
-                        <span className={`maint-status ${open ? 'offen' : 'erledigt'}`}>
-                          {open ? 'offen' : 'erledigt'}
-                        </span>
+                        <span className="maint-status offen">offen</span>
                       </td>
                       <td>{item.performedBy}</td>
                       <td>
-                        {open && (
-                          <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
-                            <span>Durchgeführt</span>
-                            <small>{user.name}</small>
-                          </button>
-                        )}
+                        <button type="button" className="done-btn" onClick={() => onDone(item.id)}>
+                          <span>Durchgeführt</span>
+                          <small>{user.name}</small>
+                        </button>
                         {isSuper && (
                           <button
                             type="button"
@@ -458,10 +451,11 @@ export default function DeviceScreen({
 
       <ResizableCard as="section" storageKey={`device-docs:${device.id}`} label="Dokumentationsbereich">
         <h2>Dokumentationsbereich</h2>
-        <p className="muted">Alle Wartungen dieses Geräts, die neueste zuerst.</p>
-        {documentation.length === 0 ? (
-          <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
-        ) : (
+        <p className="muted">Erledigte Wartungen, die neueste Durchführung zuerst.</p>
+        {documentation.length === 0 && legacy.length === 0 && (
+          <p className="empty">Noch keine erledigte Wartung.</p>
+        )}
+        {documentation.length > 0 && (
           <div className="table-wrap">
             <table className="maint-table">
               <thead>
@@ -487,16 +481,12 @@ export default function DeviceScreen({
                         item={item}
                         documents={documents}
                         token={user.token}
-                        isSuper={isSuper}
-                        onDocuments={reloadDocuments}
                         storageKey={`maint-doc-detail:${item.id}`}
                       />
                     </td>
                     <td>{item.createdBy}</td>
                     <td>
-                      <span className={`maint-status ${item.status === 'erledigt' ? 'erledigt' : 'offen'}`}>
-                        {item.status === 'erledigt' ? 'erledigt' : 'offen'}
-                      </span>
+                      <span className="maint-status erledigt">erledigt</span>
                     </td>
                     <td>{item.performedBy}</td>
                     <td>{item.completedAt ? formatDisplayDate(item.completedAt) : ''}</td>

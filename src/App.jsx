@@ -233,7 +233,7 @@ export default function App() {
               commit(result.db)
               setNotice({
                 tone: 'ok',
-                text: `Als erledigt markiert. Durchgeführt durch ${user.name}.`,
+                text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
               })
             }}
             onSaveNotes={(notes) => commit(updateDeviceNotes(db, device.id, notes))}

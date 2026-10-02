@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   addDevice,
   addMaintenance,
+  addWeeks,
   copyMaintenance,
   createSeedDb,
   deleteDevice,
@@ -12,6 +13,7 @@ import {
   moveDevice,
   moveMaintenance,
   nextFreeDeviceNumber,
+  openMaintenances,
   renameGroup,
   sortDevices,
   sortedDocumentation,
@@ -36,7 +38,7 @@ test('a device takes the most urgent maintenance', () => {
   assert.equal(deviceStatus('d-race', db.maintenances, today).level, 'ok')
 })
 
-test('Durchgeführt sets erledigt and performed-by without moving the due date', () => {
+test('Durchgeführt sets erledigt, creates an open copy, and leaves erledigt out of the open list', () => {
   const db = createSeedDb(new Date(2026, 9, 1))
   const user = { name: 'Anna Berger', role: 'standard' }
   const original = db.maintenances.find((item) => item.id === 'm-klima')
@@ -47,9 +49,33 @@ test('Durchgeführt sets erledigt and performed-by without moving the due date',
   assert.equal(updated.performedBy, 'Anna Berger')
   assert.equal(updated.completedAt, today)
   assert.equal(updated.dueDate, original.dueDate)
+  assert.equal(updated.intervalWeeks, original.intervalWeeks)
+  assert.equal(updated.description, original.description)
+  assert.equal(updated.detail, original.detail)
+  assert.equal(updated.createdBy, original.createdBy)
   assert.equal(result.db.documentation.length, db.documentation.length)
   assert.equal(result.db.nextDocNumber, db.nextDocNumber)
-  assert.equal(deviceStatus('d-klima', result.db.maintenances, today).level, 'none')
+  assert.equal(result.db.maintenances.length, db.maintenances.length + 1)
+
+  const open = openMaintenances(result.db.maintenances, 'd-klima')
+  assert.equal(open.length, 1)
+  assert.equal(open.some((item) => item.status === 'erledigt'), false)
+  const copy = open[0]
+  assert.notEqual(copy.id, original.id)
+  assert.equal(copy.status, 'offen')
+  assert.equal(copy.performedBy, '')
+  assert.equal(copy.completedAt, null)
+  assert.equal(copy.createdBy, 'Anna Berger')
+  assert.equal(copy.deviceId, 'd-klima')
+  assert.equal(copy.dueDate, addWeeks(today, original.intervalWeeks))
+  assert.equal(copy.intervalWeeks, original.intervalWeeks)
+  assert.equal(copy.description, original.description)
+  assert.equal(copy.detail, original.detail)
+  assert.deepEqual(
+    sortedDocumentation(result.db.maintenances, 'd-klima').map((item) => item.id),
+    ['m-klima'],
+  )
+  assert.equal(deviceStatus('d-klima', result.db.maintenances, today).dueDate, copy.dueDate)
   const again = markPerformed(result.db, 'm-klima', user, today)
   assert.equal(again.ok, false)
 })
@@ -106,18 +132,19 @@ test('a duplicate device number is rejected', () => {
   assert.equal(gap.error, 'Nummer schon vergeben.')
 })
 
-test('documentation order is newest completion or creation first', () => {
+test('documentation lists only completed maintenances, newest completion first', () => {
   const maintenances = [
-    { id: 'old', deviceId: 'd', completedAt: null, createdAt: '2026-10-01T08:00:00.000Z' },
-    { id: 'done-early', deviceId: 'd', completedAt: '2026-10-03', createdAt: '2026-09-01T08:00:00.000Z' },
-    { id: 'open-later', deviceId: 'd', completedAt: null, createdAt: '2026-10-04T10:00:00.000Z' },
-    { id: 'done-later', deviceId: 'd', completedAt: '2026-10-04', createdAt: '2026-08-01T08:00:00.000Z' },
-    { id: 'other', deviceId: 'other', completedAt: '2026-12-01', createdAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'old', deviceId: 'd', status: 'erledigt', completedAt: null, createdAt: '2026-10-01T08:00:00.000Z' },
+    { id: 'done-early', deviceId: 'd', status: 'erledigt', completedAt: '2026-10-03', createdAt: '2026-09-01T08:00:00.000Z' },
+    { id: 'open-later', deviceId: 'd', status: 'offen', completedAt: null, createdAt: '2026-10-04T10:00:00.000Z' },
+    { id: 'done-later', deviceId: 'd', status: 'erledigt', completedAt: '2026-10-04', createdAt: '2026-08-01T08:00:00.000Z' },
+    { id: 'other', deviceId: 'other', status: 'erledigt', completedAt: '2026-12-01', createdAt: '2026-01-01T00:00:00.000Z' },
   ]
   assert.deepEqual(
     sortedDocumentation(maintenances, 'd').map((item) => item.id),
-    ['done-later', 'open-later', 'done-early', 'old'],
+    ['done-later', 'done-early', 'old'],
   )
+  assert.deepEqual(openMaintenances(maintenances, 'd').map((item) => item.id), ['open-later'])
 })
 
 test('a maintenance stores Wartungsbeschrieb separately from the short description', () => {
@@ -139,17 +166,26 @@ test('a maintenance stores Wartungsbeschrieb separately from the short descripti
   assert.equal(created.detail, 'Stecker lösen und den Kabelzug an der Rückseite prüfen.')
   assert.notEqual(created.detail, created.description)
 
-  const performed = markPerformed(added.db, created.id, { name: 'Anna Berger' }, today)
-  assert.equal(performed.ok, true)
-  assert.equal(
-    performed.db.maintenances.find((item) => item.id === created.id).detail,
-    created.detail,
-  )
-
-  const edited = updateMaintenanceDetail(performed.db, created.id, 'Neuer Beschrieb mit Link.')
+  const edited = updateMaintenanceDetail(added.db, created.id, 'Neuer Beschrieb mit Link.')
   assert.equal(edited.ok, true)
   assert.equal(edited.db.maintenances.find((item) => item.id === created.id).detail, 'Neuer Beschrieb mit Link.')
   assert.equal(edited.db.maintenances.find((item) => item.id === created.id).description, 'Kabel prüfen')
+
+  const performed = markPerformed(edited.db, created.id, { name: 'Anna Berger' }, today)
+  assert.equal(performed.ok, true)
+  assert.equal(
+    performed.db.maintenances.find((item) => item.id === created.id).detail,
+    'Neuer Beschrieb mit Link.',
+  )
+  const blocked = updateMaintenanceDetail(performed.db, created.id, 'Darf nicht mehr geändert werden.')
+  assert.equal(blocked.ok, false)
+  assert.equal(
+    performed.db.maintenances.find((item) => item.id === created.id).detail,
+    'Neuer Beschrieb mit Link.',
+  )
+  const successor = openMaintenances(performed.db.maintenances, 'd-vr').find((item) => item.description === 'Kabel prüfen')
+  assert.equal(successor.detail, 'Neuer Beschrieb mit Link.')
+  assert.equal(successor.status, 'offen')
 
   const empty = addMaintenance(db, {
     deviceId: 'd-vr',
@@ -241,7 +277,10 @@ test('move maintenance keeps completion state and leaves the source device', () 
   assert.equal(item.performedBy, 'Anna Berger')
   assert.equal(item.completedAt, today)
   assert.equal(item.dueDate, done.db.maintenances.find((entry) => entry.id === 'm-klima').dueDate)
-  assert.equal(moved.db.maintenances.filter((entry) => entry.deviceId === 'd-klima').length, 0)
+  const successor = moved.db.maintenances.find((entry) => entry.deviceId === 'd-klima')
+  assert.equal(successor.status, 'offen')
+  assert.equal(successor.dueDate, addWeeks(today, item.intervalWeeks))
+  assert.equal(moved.db.maintenances.filter((entry) => entry.deviceId === 'd-klima' && entry.status === 'erledigt').length, 0)
   assert.equal(moveMaintenance(db, 'missing', 'd-vr').ok, false)
   assert.equal(moveMaintenance(db, 'm-klima', 'missing').ok, false)
 })

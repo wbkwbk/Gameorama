@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createSeedDb, formatISODate, prepareDeviceNumbers } from '../src/model.js'
+import { addWeeks, createSeedDb, formatISODate, prepareDeviceNumbers } from '../src/model.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
 const SCHEMA = `
@@ -602,19 +602,64 @@ function editableDetail(item, previousDetail, actor) {
   return String(previousDetail ?? '')
 }
 
+function followUpMatches(item, completion) {
+  const interval = Number(completion.intervalWeeks)
+  if (!Number.isInteger(interval) || interval < 1) return false
+  return (
+    String(item.deviceId) === completion.deviceId &&
+    Number(item.intervalWeeks) === interval &&
+    String(item.description ?? '').trim() === completion.description &&
+    String(item.detail ?? '') === String(completion.detail ?? '') &&
+    String(item.dueDate) === addWeeks(completion.completedAt, interval)
+  )
+}
+
 function mergeMaintenances(incoming, previous, actor) {
   const previousById = new Map(previous.map((item) => [String(item.id), item]))
+  const completions = []
+  for (const item of incoming) {
+    const prev = previousById.get(String(item.id))
+    if (!prev || prev.status === 'erledigt' || item.status !== 'erledigt') continue
+    if (!actor) throw new Error('Keine Berechtigung')
+    completions.push({
+      deviceId: String(prev.deviceId),
+      intervalWeeks: Number(prev.intervalWeeks),
+      description: String(prev.description ?? '').trim(),
+      detail: editableDetail(item, prev.detail, actor),
+      completedAt: completionDate(item.completedAt),
+    })
+  }
+  const available = completions.slice()
+
   return incoming.map((item) => {
     const prev = previousById.get(String(item.id))
     if (!prev) {
-      if (!actor || actor.role !== 'super') throw new Error('Keine Berechtigung')
+      if (actor?.role === 'super') {
+        return {
+          id: String(item.id),
+          deviceId: String(item.deviceId),
+          dueDate: String(item.dueDate),
+          intervalWeeks: Number(item.intervalWeeks),
+          description: String(item.description ?? '').trim(),
+          detail: String(item.detail ?? ''),
+          createdBy: actor.name,
+          status: 'offen',
+          performedBy: '',
+          completedAt: null,
+          createdAt: new Date().toISOString(),
+        }
+      }
+      const index = available.findIndex((completion) => followUpMatches(item, completion))
+      if (!actor || index < 0) throw new Error('Keine Berechtigung')
+      const completion = available.splice(index, 1)[0]
+      const interval = Number(completion.intervalWeeks)
       return {
         id: String(item.id),
-        deviceId: String(item.deviceId),
-        dueDate: String(item.dueDate),
-        intervalWeeks: Number(item.intervalWeeks),
-        description: String(item.description ?? '').trim(),
-        detail: String(item.detail ?? ''),
+        deviceId: completion.deviceId,
+        dueDate: addWeeks(completion.completedAt, interval),
+        intervalWeeks: interval,
+        description: completion.description,
+        detail: String(completion.detail ?? ''),
         createdBy: actor.name,
         status: 'offen',
         performedBy: '',
@@ -622,8 +667,8 @@ function mergeMaintenances(incoming, previous, actor) {
         createdAt: new Date().toISOString(),
       }
     }
-    const detail = editableDetail(item, prev.detail, actor)
     const wasDone = prev.status === 'erledigt'
+    const detail = wasDone ? String(prev.detail ?? '') : editableDetail(item, prev.detail, actor)
     if (!wasDone && item.status === 'erledigt') {
       if (!actor) throw new Error('Keine Berechtigung')
       return {

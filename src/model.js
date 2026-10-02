@@ -149,9 +149,16 @@ export function documentationTime(item) {
   return String(item.createdAt || '')
 }
 
+export function openMaintenances(maintenances, deviceId) {
+  return maintenances
+    .filter((item) => item.deviceId === deviceId && item.status !== 'erledigt')
+    .slice()
+    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+}
+
 export function sortedDocumentation(maintenances, deviceId) {
   return maintenances
-    .filter((item) => item.deviceId === deviceId)
+    .filter((item) => item.deviceId === deviceId && item.status === 'erledigt')
     .slice()
     .sort((a, b) => {
       const byTime = documentationTime(b).localeCompare(documentationTime(a))
@@ -290,20 +297,30 @@ export function markPerformed(db, maintenanceId, user, today) {
   const name = String(user?.name ?? '').trim()
   if (!name) return { ok: false, error: 'Der Benutzer fehlt.' }
 
+  const completed = {
+    ...maintenance,
+    status: 'erledigt',
+    performedBy: name,
+    completedAt: today,
+  }
+  const next = {
+    id: uid(),
+    deviceId: maintenance.deviceId,
+    dueDate: addWeeks(today, maintenance.intervalWeeks),
+    intervalWeeks: maintenance.intervalWeeks,
+    description: maintenance.description,
+    detail: String(maintenance.detail ?? ''),
+    createdBy: name,
+    status: 'offen',
+    performedBy: '',
+    completedAt: null,
+    createdAt: new Date().toISOString(),
+  }
   return {
     ok: true,
     db: {
       ...db,
-      maintenances: db.maintenances.map((item) =>
-        item.id === maintenance.id
-          ? {
-              ...item,
-              status: 'erledigt',
-              performedBy: name,
-              completedAt: today,
-            }
-          : item,
-      ),
+      maintenances: db.maintenances.map((item) => (item.id === maintenance.id ? completed : item)).concat(next),
     },
   }
 }
@@ -405,8 +422,10 @@ export function updateDeviceNotes(db, deviceId, notes) {
 }
 
 export function updateMaintenanceDetail(db, maintenanceId, detail) {
-  if (!db.maintenances.some((item) => item.id === maintenanceId)) {
-    return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
+  const current = db.maintenances.find((item) => item.id === maintenanceId)
+  if (!current) return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
+  if (current.status === 'erledigt') {
+    return { ok: false, error: 'Erledigte Wartungen können nicht mehr geändert werden.' }
   }
   return {
     ok: true,

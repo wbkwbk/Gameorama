@@ -17,7 +17,7 @@ import {
 } from '../server/db.js'
 import { startServer } from '../server/index.js'
 import { hashPassword, verifyPassword } from '../server/passwords.js'
-import { markPerformed } from '../src/model.js'
+import { addWeeks, markPerformed, openMaintenances } from '../src/model.js'
 
 test('a new database stores the seed in SQLite', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
@@ -62,6 +62,43 @@ test('maintenance changes survive a round trip through SQLite', () => {
     assert.equal(klima.completedAt, '2026-10-01')
     assert.equal(klima.dueDate, beforeDue)
     assert.equal(after.devices.find((device) => device.id === 'd-flipper').number, 1)
+    const open = openMaintenances(after.maintenances, 'd-klima')
+    assert.equal(open.length, 1)
+    assert.equal(open.some((item) => item.status === 'erledigt'), false)
+    const successor = open[0]
+    const source = before.maintenances.find((item) => item.id === 'm-klima')
+    assert.notEqual(successor.id, 'm-klima')
+    assert.equal(successor.status, 'offen')
+    assert.equal(successor.performedBy, '')
+    assert.equal(successor.completedAt, null)
+    assert.equal(successor.createdBy, 'Anna Berger')
+    assert.equal(successor.deviceId, 'd-klima')
+    assert.equal(successor.dueDate, addWeeks('2026-10-01', source.intervalWeeks))
+    assert.equal(successor.intervalWeeks, source.intervalWeeks)
+    assert.equal(successor.description, source.description)
+    assert.equal(successor.detail, source.detail)
+
+    const locked = structuredClone(after)
+    locked.maintenances.find((item) => item.id === 'm-klima').detail = 'Nachträglich geändert'
+    writeState(database, locked, user)
+    const kept = readState(database)
+    assert.equal(kept.maintenances.find((item) => item.id === 'm-klima').detail, source.detail)
+
+    const extra = structuredClone(after)
+    extra.maintenances.push({
+      id: 'm-extra',
+      deviceId: 'd-klima',
+      dueDate: '2026-12-01',
+      intervalWeeks: 1,
+      description: 'Nicht erlaubt',
+      detail: '',
+      createdBy: 'Anna Berger',
+      status: 'offen',
+      performedBy: '',
+      completedAt: null,
+      createdAt: '2026-10-01T12:00:00.000Z',
+    })
+    assert.throws(() => writeState(database, extra, user), /Keine Berechtigung/)
     database.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
