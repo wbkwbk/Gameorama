@@ -27,7 +27,7 @@ export default function LoginScreen({ onLogin }) {
       <section className="login-card">
         <h2>Anmelden</h2>
         <p className="muted">
-          Standard Benutzer markieren Wartungen als durchgeführt. Super Benutzer verwalten Geräte und Wartungen.
+          Standard Benutzer markieren Wartungen als durchgeführt. Super Benutzer verwalten Geräte, Wartungen und Benutzer.
         </p>
         <form onSubmit={submit}>
           <label>

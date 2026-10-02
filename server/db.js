@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -45,6 +46,12 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('standard', 'super')),
   comment TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (username) REFERENCES users(username) ON UPDATE CASCADE ON DELETE CASCADE
 );
 `
 
@@ -118,13 +125,43 @@ export function loginUser(database, username, password) {
   return publicUser(row)
 }
 
-export function saveUser(database, { username, password, name, role, comment = '' }) {
+function cleanUserFields({ username, name, role, comment = '' }) {
   const cleanName = String(username ?? '').trim()
+  const cleanDisplay = String(name ?? '').trim()
   const cleanRole = role === 'super' ? 'super' : role === 'standard' ? 'standard' : ''
+  const cleanComment = String(comment ?? '')
   if (!cleanName) throw new Error('Benutzername fehlt')
-  if (!password) throw new Error('Passwort fehlt')
-  if (!String(name ?? '').trim()) throw new Error('Name fehlt')
+  if (cleanName.includes('/')) throw new Error('Benutzername darf kein / enthalten')
+  if (!cleanDisplay) throw new Error('Name fehlt')
   if (!cleanRole) throw new Error('Rolle muss standard oder super sein')
+  return { username: cleanName, name: cleanDisplay, role: cleanRole, comment: cleanComment }
+}
+
+function passwordHashForSave(password, existingHash) {
+  if (password == null || password === '') {
+    if (!existingHash) throw new Error('Passwort fehlt')
+    return existingHash
+  }
+  if (typeof password !== 'string') throw new Error('Passwort fehlt')
+  return hashPassword(password)
+}
+
+function assertRoleChangeAllowed(database, currentRole, nextRole) {
+  if (currentRole === 'super' && nextRole !== 'super') {
+    const supers = database.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'super'`).get()
+    if (Number(supers.count) <= 1) {
+      throw new Error('Der letzte Super Benutzer kann nicht herabgestuft werden')
+    }
+  }
+}
+
+export function saveUser(database, { username, password, name, role, comment = '' }) {
+  const fields = cleanUserFields({ username, name, role, comment })
+  const existing = database
+    .prepare('SELECT password_hash, role FROM users WHERE username = ?')
+    .get(fields.username)
+  if (existing) assertRoleChangeAllowed(database, existing.role, fields.role)
+  const hash = passwordHashForSave(password, existing?.password_hash)
   database
     .prepare(
       `INSERT INTO users (username, password_hash, name, role, comment)
@@ -135,7 +172,53 @@ export function saveUser(database, { username, password, name, role, comment = '
          role = excluded.role,
          comment = excluded.comment`,
     )
-    .run(cleanName, hashPassword(password), String(name).trim(), cleanRole, String(comment ?? ''))
+    .run(fields.username, hash, fields.name, fields.role, fields.comment)
+  return publicUser(
+    database
+      .prepare('SELECT username, name, role, comment FROM users WHERE username = ?')
+      .get(fields.username),
+  )
+}
+
+export function updateUser(database, currentUsername, fields) {
+  const current = String(currentUsername ?? '').trim()
+  const existing = database
+    .prepare('SELECT username, password_hash, role FROM users WHERE username = ?')
+    .get(current)
+  if (!existing) throw new Error('Benutzer nicht gefunden')
+
+  const next = cleanUserFields(fields)
+  if (next.username !== current) {
+    const clash = database.prepare('SELECT username FROM users WHERE username = ?').get(next.username)
+    if (clash) throw new Error('Dieser Benutzername ist bereits vergeben')
+  }
+  assertRoleChangeAllowed(database, existing.role, next.role)
+  const hash = passwordHashForSave(fields.password, existing.password_hash)
+
+  database.exec('BEGIN IMMEDIATE')
+  try {
+    const result = database
+      .prepare(
+        `UPDATE users
+         SET username = ?, password_hash = ?, name = ?, role = ?, comment = ?
+         WHERE username = ?`,
+      )
+      .run(next.username, hash, next.name, next.role, next.comment, current)
+    if (result.changes === 0) throw new Error('Benutzer nicht gefunden')
+    if (next.username !== current) {
+      database.prepare('UPDATE sessions SET username = ? WHERE username = ?').run(next.username, current)
+    }
+    database.exec('COMMIT')
+  } catch (error) {
+    database.exec('ROLLBACK')
+    throw error
+  }
+
+  return publicUser(
+    database
+      .prepare('SELECT username, name, role, comment FROM users WHERE username = ?')
+      .get(next.username),
+  )
 }
 
 export function setPassword(database, username, password) {
@@ -155,13 +238,47 @@ export function setComment(database, username, comment) {
 
 export function deleteUser(database, username) {
   const cleanName = String(username).trim()
-  const existing = database.prepare('SELECT role FROM users WHERE username = ?').get(cleanName)
-  if (!existing) throw new Error('Benutzer nicht gefunden')
-  if (existing.role === 'super') {
-    const supers = database.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'super'`).get()
-    if (Number(supers.count) <= 1) throw new Error('Der letzte Super Benutzer kann nicht gelöscht werden')
+  database.exec('BEGIN IMMEDIATE')
+  try {
+    const existing = database.prepare('SELECT role FROM users WHERE username = ?').get(cleanName)
+    if (!existing) throw new Error('Benutzer nicht gefunden')
+    if (existing.role === 'super') {
+      const supers = database.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'super'`).get()
+      if (Number(supers.count) <= 1) throw new Error('Der letzte Super Benutzer kann nicht gelöscht werden')
+    }
+    database.prepare('DELETE FROM sessions WHERE username = ?').run(cleanName)
+    database.prepare('DELETE FROM users WHERE username = ?').run(cleanName)
+    database.exec('COMMIT')
+  } catch (error) {
+    database.exec('ROLLBACK')
+    throw error
   }
-  database.prepare('DELETE FROM users WHERE username = ?').run(cleanName)
+}
+
+export function createSession(database, username) {
+  const token = randomBytes(32).toString('hex')
+  database
+    .prepare('INSERT INTO sessions (token, username, created_at) VALUES (?, ?, ?)')
+    .run(token, username, new Date().toISOString())
+  return token
+}
+
+export function deleteSession(database, token) {
+  if (!token) return
+  database.prepare('DELETE FROM sessions WHERE token = ?').run(String(token))
+}
+
+export function sessionUser(database, token) {
+  if (!token) return null
+  const row = database
+    .prepare(
+      `SELECT u.username AS username, u.name AS name, u.role AS role, u.comment AS comment
+       FROM sessions s
+       JOIN users u ON u.username = s.username
+       WHERE s.token = ?`,
+    )
+    .get(String(token))
+  return row ? publicUser(row) : null
 }
 
 export function readState(database) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   addDevice,
   addGroup,
@@ -11,10 +11,62 @@ import {
   todayISO,
   updateDeviceNotes,
 } from './model.js'
-import { clearSession, loadDb, loadSession, loginRequest, saveDb, saveSession } from './storage.js'
+import { clearSession, loadDb, loadSession, loginRequest, logoutRequest, saveDb, saveSession } from './storage.js'
 import LoginScreen from './screens/LoginScreen.jsx'
 import OverviewScreen from './screens/OverviewScreen.jsx'
 import DeviceScreen from './screens/DeviceScreen.jsx'
+import UsersScreen from './screens/UsersScreen.jsx'
+
+function SuperMenu({ onUsers }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return undefined
+    function closeOnOutside(event) {
+      if (!ref.current?.contains(event.target)) setOpen(false)
+    }
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div className="menu" ref={ref}>
+      <button
+        type="button"
+        className="btn ghost menu-button"
+        aria-label="Menü"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls="super-menu"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
+      {open && (
+        <div className="menu-panel" id="super-menu" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onUsers()
+            }}
+          >
+            Benutzerverwaltung
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function App() {
   const [user, setUser] = useState(() => loadSession())
@@ -70,10 +122,22 @@ export default function App() {
   }
 
   function logout() {
+    const token = user?.token
     clearSession()
     setUser(null)
     setRoute({ name: 'overview' })
     setNotice(null)
+    logoutRequest(token).catch(() => {})
+  }
+
+  function applySessionUser(next) {
+    const stored = { ...next, token: user.token }
+    setUser(stored)
+    saveSession(stored)
+    if (stored.role !== 'super') {
+      setRoute({ name: 'overview' })
+      setNotice({ tone: 'ok', text: 'Deine Rolle ist jetzt Standard Benutzer.' })
+    }
   }
 
   function openDevice(deviceId) {
@@ -113,6 +177,14 @@ export default function App() {
             <strong>{user.name}</strong>
             <span className={`role role-${user.role}`}>{roleLabel(user.role)}</span>
           </div>
+          {isSuper && (
+            <SuperMenu
+              onUsers={() => {
+                setNotice(null)
+                setRoute({ name: 'users' })
+              }}
+            />
+          )}
           <button type="button" className="btn ghost" onClick={logout}>
             Abmelden
           </button>
@@ -177,6 +249,18 @@ export default function App() {
                 },
               })
             }}
+          />
+        ) : route.name === 'users' && isSuper ? (
+          <UsersScreen
+            token={user.token}
+            currentUsername={user.username}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onSessionUser={applySessionUser}
+            onSelfDeleted={logout}
+            onAskConfirm={askConfirm}
           />
         ) : (
           <OverviewScreen

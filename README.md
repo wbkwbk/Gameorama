@@ -16,9 +16,11 @@ Die App läuft dann auf [http://localhost:5173](http://localhost:5173).
 | Benutzer | Passwort | Rechte |
 | --- | --- | --- |
 | `anna` | `wartung` | Standard Benutzer: Wartungen als durchgeführt markieren |
-| `admin` | `super` | Super Benutzer: Geräte, Gruppen und Wartungen hinzufügen und löschen |
+| `admin` | `super` | Super Benutzer: Geräte, Gruppen, Wartungen und Benutzer verwalten |
 
 Nach «Durchgeführt» entsteht ein Eintrag im Dokumentationsbereich (Datum, Wartungsnummer, Benutzername). Der nächste Termin liegt um das hinterlegte Intervall in Wochen nach dem Durchführungstag.
+
+Super Benutzer öffnen die Benutzerverwaltung über das Menü in der Kopfzeile. Dort lassen sich Benutzer anlegen, in allen Feldern ändern und löschen. Ein leeres Passwortfeld beim Bearbeiten behält das bisherige Passwort. Der letzte Super Benutzer kann nicht gelöscht oder zum Standard Benutzer gemacht werden.
 
 Geräte, Wartungen, Dokumentation und Benutzer liegen in der SQLite-Datei `data/gameorama.sqlite`. Passwörter stehen dort nur als scrypt-Hash. `npm run dev` startet die API auf Port 3001 und die Oberfläche auf Port 5173. Die Anmeldung gilt nur für den offenen Browser-Tab.
 

@@ -28,6 +28,60 @@ export async function loginRequest(username, password) {
   return response.json()
 }
 
+async function apiError(response, fallback) {
+  try {
+    const data = await response.json()
+    if (data && typeof data.error === 'string' && data.error) return data.error
+  } catch {
+    // Die Oberfläche zeigt dann den allgemeinen Hinweis.
+  }
+  return fallback
+}
+
+function bearer(token) {
+  return { Authorization: `Bearer ${token}` }
+}
+
+export async function logoutRequest(token) {
+  if (!token) return
+  await fetch('/api/logout', { method: 'POST', headers: bearer(token) })
+}
+
+export async function fetchUsers(token) {
+  const response = await fetch('/api/users', { headers: bearer(token) })
+  if (!response.ok) throw new Error(await apiError(response, 'Benutzer konnten nicht geladen werden.'))
+  return response.json()
+}
+
+export async function createUser(token, fields) {
+  const response = await fetch('/api/users', {
+    method: 'POST',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Benutzer konnte nicht angelegt werden.'))
+  return response.json()
+}
+
+export async function updateUser(token, username, fields) {
+  const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+    method: 'PUT',
+    headers: { ...bearer(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Benutzer konnte nicht gespeichert werden.'))
+  return response.json()
+}
+
+export async function deleteUser(token, username) {
+  const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  })
+  if (!response.ok) throw new Error(await apiError(response, 'Benutzer konnte nicht gelöscht werden.'))
+  return response.json()
+}
+
 export async function loadDb() {
   const legacy = window.localStorage.getItem(LEGACY_KEY)
   if (legacy) {
@@ -52,7 +106,11 @@ export function loadSession() {
 }
 
 export function saveSession(user) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(user))
+  const { token, username, name, role, comment } = user
+  sessionStorage.setItem(
+    SESSION_KEY,
+    JSON.stringify({ token, username, name, role, comment }),
+  )
 }
 
 export function clearSession() {
