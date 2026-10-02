@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Attachments from '../Attachments.jsx'
 import ResizableCard from '../ResizableCard.jsx'
+import ResizableList from '../ResizableList.jsx'
 import { MIN_DETAIL_WIDTH } from '../panelSize.js'
-import { listDocuments } from '../storage.js'
+import { listDocuments, uploadDocument } from '../storage.js'
 import {
   addWeeks,
   deviceStatus,
@@ -68,6 +69,20 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
       />
     </ResizableCard>
   )
+}
+
+const MAX_DOCUMENT_BYTES = 15 * 1024 * 1024
+const DOCUMENT_EXTENSIONS = new Set(['pdf', 'png', 'jpg', 'jpeg', 'webp', 'txt', 'doc', 'docx', 'xlsx'])
+
+function pendingFileError(file) {
+  const name = String(file?.name ?? '').trim()
+  if (!name || name.length > 180 || /[\\/\0]/.test(name) || name.includes('..')) {
+    return 'Ungültiger Dateiname'
+  }
+  const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : ''
+  if (!DOCUMENT_EXTENSIONS.has(extension)) return 'Dieser Dateityp ist nicht erlaubt.'
+  if (file.size > MAX_DOCUMENT_BYTES) return 'Die Datei ist zu gross. Maximal 15 MB.'
+  return null
 }
 
 function deviceChoiceLabel(item, groups) {
@@ -201,6 +216,9 @@ export default function DeviceScreen({
   onDeleteDevice,
 }) {
   const [documents, setDocuments] = useState([])
+  const [pendingDocs, setPendingDocs] = useState([])
+  const [saving, setSaving] = useState(false)
+  const pendingKey = useRef(1)
   const [form, setForm] = useState({
     dueDate: addWeeks(todayISO(), 4),
     intervalWeeks: 4,
@@ -223,8 +241,33 @@ export default function DeviceScreen({
     }
   }, [user.token])
 
+  useEffect(() => {
+    setPendingDocs([])
+    setFormError(null)
+  }, [device.id])
+
   async function reloadDocuments() {
     setDocuments(await listDocuments(user.token))
+  }
+
+  function addPendingFile(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    const error = pendingFileError(file)
+    if (error) {
+      setFormError(error)
+      return
+    }
+    setFormError(null)
+    const id = `pending-${pendingKey.current}`
+    pendingKey.current += 1
+    setPendingDocs((current) => [...current, { id, file }])
+  }
+
+  function removePendingFile(id) {
+    setPendingDocs((current) => current.filter((item) => item.id !== id))
+    setFormError(null)
   }
 
   const status = deviceStatus(device.id, db.maintenances, today)
@@ -232,24 +275,57 @@ export default function DeviceScreen({
   const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
 
-  function submitMaintenance(event) {
+  async function submitMaintenance(event) {
     event.preventDefault()
-    const error = onAddMaintenance({
-      dueDate: form.dueDate,
-      intervalWeeks: Number(form.intervalWeeks),
-      description: form.description,
-      detail: form.detail,
-    })
-    setFormError(error)
-    if (!error) {
+    if (saving) return
+    const chosen = pendingDocs
+    for (const item of chosen) {
+      const invalid = pendingFileError(item.file)
+      if (invalid) {
+        setFormError(invalid)
+        return
+      }
+    }
+    setSaving(true)
+    setFormError(null)
+    try {
+      const outcome = await onAddMaintenance({
+        dueDate: form.dueDate,
+        intervalWeeks: Number(form.intervalWeeks),
+        description: form.description,
+        detail: form.detail,
+      })
+      if (typeof outcome === 'string') {
+        setFormError(outcome)
+        return
+      }
+      if (!outcome?.id) {
+        setFormError('Wartung konnte nicht gespeichert werden.')
+        return
+      }
+      const failed = []
+      let uploadError = null
+      for (const item of chosen) {
+        try {
+          await uploadDocument(user.token, outcome.id, item.file)
+        } catch (err) {
+          failed.push(item)
+          uploadError = err instanceof Error ? err.message : 'Dokument konnte nicht hochgeladen werden.'
+        }
+      }
+      await reloadDocuments()
+      setPendingDocs(failed)
       setForm({ dueDate: addWeeks(todayISO(), 4), intervalWeeks: 4, description: '', detail: '' })
+      if (uploadError) setFormError(uploadError)
+    } finally {
+      setSaving(false)
     }
   }
 
   return (
     <div className="device-page">
-      <button type="button" className="text-link" onClick={onBack}>
-        ← Übersicht
+      <button type="button" className="btn secondary device-back" onClick={onBack}>
+        ← Zurück zur Übersicht
       </button>
 
       <header className="device-title">
@@ -277,7 +353,16 @@ export default function DeviceScreen({
         {maintenances.length === 0 ? (
           <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
         ) : (
-          <div className="table-wrap">
+          <ResizableList
+            as="div"
+            className="table-wrap maint-list-scroll"
+            itemKey={`${device.id}:${maintenances.map((item) => item.id).join(',')}`}
+            storageKey={`device-list:${device.id}`}
+            label="Wartungsliste"
+            rowSelector="tbody tr"
+            minPx={160}
+            fitContent
+          >
             <table className="maint-table">
               <thead>
                 <tr>
@@ -355,7 +440,7 @@ export default function DeviceScreen({
                 })}
               </tbody>
             </table>
-          </div>
+          </ResizableList>
         )}
       </ResizableCard>
 
@@ -407,7 +492,37 @@ export default function DeviceScreen({
                 placeholder="Ausführlicher Beschrieb zur Wartung"
               />
             </label>
-            <button type="submit" className="btn secondary">Wartung hinzufügen</button>
+            <div className="wide attachments pending-docs">
+              {pendingDocs.length > 0 && (
+                <ul className="doc-list" aria-label="Ausgewählte Dokumente">
+                  {pendingDocs.map((item) => (
+                    <li key={item.id} className="doc-row">
+                      <span className="doc-name">{item.file.name}</span>
+                      <button
+                        type="button"
+                        className="btn tiny danger"
+                        onClick={() => removePendingFile(item.id)}
+                        disabled={saving}
+                      >
+                        Löschen
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <label className="upload-row">
+                Dokument hinzufügen
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.xlsx"
+                  onChange={addPendingFile}
+                  disabled={saving}
+                />
+              </label>
+            </div>
+            <button type="submit" className="btn secondary" disabled={saving}>
+              {saving ? 'Wird gespeichert …' : 'Wartung hinzufügen'}
+            </button>
             {formError && <p className="form-error">{formError}</p>}
           </form>
         </ResizableCard>

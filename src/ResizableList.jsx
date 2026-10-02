@@ -10,6 +10,8 @@ export default function ResizableList({
   rowSelector,
   className,
   as: Tag = 'ul',
+  minPx = null,
+  fitContent = false,
 }) {
   const frameRef = useRef(null)
   const listRef = useRef(null)
@@ -25,11 +27,16 @@ export default function ResizableList({
     if (!frame || !list) return undefined
 
     function measure() {
-      const row = list.querySelector(rowSelector)
-      if (!row) return null
-      const styles = getComputedStyle(list)
-      const gap = parseFloat(styles.rowGap || styles.gap) || 0
-      const min = Math.ceil(row.getBoundingClientRect().height * 3 + gap * 2) + 2
+      let min = null
+      if (Number.isFinite(minPx) && minPx > 0) {
+        min = Math.round(minPx)
+      } else {
+        const row = list.querySelector(rowSelector)
+        if (!row) return null
+        const styles = getComputedStyle(list)
+        const gap = parseFloat(styles.rowGap || styles.gap) || 0
+        min = Math.ceil(row.getBoundingClientRect().height * 3 + gap * 2) + 2
+      }
       const max = Math.max(min, Math.round(window.innerHeight * 0.7))
       return { min, max }
     }
@@ -42,10 +49,11 @@ export default function ResizableList({
         current.min === nextBounds.min && current.max === nextBounds.max ? current : nextBounds,
       )
       const preferred = preferredHeightRef.current
+      const basis = preferred == null
+        ? (fitContent ? list.scrollHeight : nextBounds.min)
+        : preferred
       setHeight((current) => {
-        const next = preferred == null
-          ? nextBounds.min
-          : Math.min(nextBounds.max, Math.max(nextBounds.min, preferred))
+        const next = Math.min(nextBounds.max, Math.max(nextBounds.min, basis))
         return current === next ? current : next
       })
     }
@@ -59,8 +67,12 @@ export default function ResizableList({
       apply()
     })
     observer.observe(frame)
-    return () => observer.disconnect()
-  }, [itemKey, rowSelector])
+    window.addEventListener('resize', apply)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', apply)
+    }
+  }, [itemKey, rowSelector, minPx, fitContent])
 
   function clamp(value) {
     const { min, max } = boundsRef.current

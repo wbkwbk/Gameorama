@@ -123,6 +123,7 @@ export default function App() {
     setDb(next)
     try {
       setDb(await saveDb(next, user?.token))
+      return true
     } catch {
       setNotice({ tone: 'error', text: 'Speichern in der Datenbank ist fehlgeschlagen.' })
       try {
@@ -130,6 +131,7 @@ export default function App() {
       } catch {
         setLoadError('Die SQLite-Datenbank ist nicht erreichbar.')
       }
+      return false
     }
   }
 
@@ -273,12 +275,16 @@ export default function App() {
               }
               commit(result.db)
             }}
-            onAddMaintenance={(input) => {
+            onAddMaintenance={async (input) => {
               const result = addMaintenance(db, { ...input, deviceId: device.id, createdBy: user.name })
               if (!result.ok) return result.error
-              commit(result.db)
+              const saved = await commit(result.db)
+              if (!saved) return 'Speichern in der Datenbank ist fehlgeschlagen.'
+              const previous = new Set(db.maintenances.map((item) => item.id))
+              const created = result.db.maintenances.find((item) => !previous.has(item.id))
+              if (!created) return 'Wartung konnte nicht gespeichert werden.'
               setNotice({ tone: 'ok', text: 'Wartung hinzugefügt.' })
-              return null
+              return { id: created.id }
             }}
             onDeleteMaintenance={(maintenanceId, description) => {
               askConfirm({
