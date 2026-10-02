@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import ResizableCard from '../ResizableCard.jsx'
+import ResizableList from '../ResizableList.jsx'
 
 function RenameRow({ group, onRename }) {
   const [name, setName] = useState(group.name)
@@ -109,11 +110,18 @@ export default function GroupsScreen({ db, notice, onBack, onRenameGroup, onMove
         {db.groups.length === 0 ? (
           <p className="empty">Noch keine Gruppen.</p>
         ) : (
-          <div className="rename-list">
+          <ResizableList
+            as="div"
+            className="rename-list"
+            rowSelector=".rename-row"
+            itemKey={db.groups.map((group) => group.id).join(',')}
+            storageKey="groups-rename"
+            label="Gruppen umbenennen"
+          >
             {db.groups.map((group) => (
               <RenameRow key={group.id} group={group} onRename={onRenameGroup} />
             ))}
-          </div>
+          </ResizableList>
         )}
       </ResizableCard>
 
@@ -122,11 +130,18 @@ export default function GroupsScreen({ db, notice, onBack, onRenameGroup, onMove
         {devices.length === 0 ? (
           <p className="empty">Noch keine Geräte.</p>
         ) : (
-          <div className="assign-list">
+          <ResizableList
+            as="div"
+            className="assign-list"
+            rowSelector=".assign-row"
+            itemKey={devices.map((device) => device.id).join(',')}
+            storageKey="groups-assign"
+            label="Geräte einer Gruppe zuordnen"
+          >
             {devices.map((device) => (
               <AssignRow key={device.id} device={device} groups={db.groups} onMove={onMoveDevice} />
             ))}
-          </div>
+          </ResizableList>
         )}
       </ResizableCard>
     </div>
