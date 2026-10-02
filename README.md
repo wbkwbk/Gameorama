@@ -40,10 +40,8 @@ Eine schon vorhandene Datei `data\gameorama.sqlite` bleibt beim Installieren unv
 
 ## Rollen
 
-| Benutzer | Passwort | Rechte |
-| --- | --- | --- |
-| `anna` | `wartung` | Standard Benutzer: Wartungen als durchgeführt markieren |
-| `admin` | `super` | Super Benutzer: Geräte, Gruppen, Wartungen und Benutzer verwalten |
+Benutzer  Standard Benutzer: Wartungen als durchgeführt markieren |
+Super Benutzer: Geräte, Gruppen, Wartungen und Benutzer verwalten |
 
 Nach «Durchgeführt» wird die Wartung auf erledigt gesetzt. «Durchgeführt durch» enthält den angemeldeten Benutzer, das Fälligkeitsdatum bleibt stehen. Der Dokumentationsbereich listet die Wartungen des Geräts, die neueste zuerst. Ältere Dokumentationseinträge bleiben lesbar.
 
