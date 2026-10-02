@@ -42,6 +42,7 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
 
   function set(key, value) {
     setFields((current) => ({ ...current, [key]: value }))
+    setError(null)
   }
 
   async function save(event) {
@@ -77,7 +78,7 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
       </header>
 
       <section>
-        <h2>{maintenance.description}</h2>
+        <h2>{fields.description.trim() || 'Wartung'}</h2>
         <form className="maintenance-form" autoComplete="off" noValidate onSubmit={save}>
           <label>
             Fällig am
