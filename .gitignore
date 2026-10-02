@@ -4,3 +4,4 @@ data/*.sqlite
 data/*.sqlite-*
 data/uploads/
 .DS_Store
+Gameorama-Wartungstool.zip

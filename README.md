@@ -27,6 +27,17 @@ Der Cloudflare-Ursprung für die Produktions-App ist `http://127.0.0.1:3001`. De
 
 `npm run build` schreibt nach `dist/` und lässt die Daten stehen. Die SQLite-Datei liegt in `data/gameorama.sqlite`, hochgeladene Dokumente in `data/uploads/`.
 
+## Installation unter Windows
+
+Das Paket `Gameorama-Wartungstool.zip` enthält die Quellen zum Installieren, ohne `node_modules`, `dist` und ohne die Datenbank. Neu erzeugen mit `node scripts/make-zip.mjs`.
+
+1. Die ZIP-Datei entpacken.
+2. `install.cmd` ausführen. Dafür ist Node.js 22 oder neuer nötig. Fehlt Node.js oder ist es älter, nennt das Skript den Download unter https://nodejs.org/ .
+3. `start.cmd` ausführen.
+4. Die Anwendung im Browser öffnen: http://127.0.0.1:3001
+
+Eine schon vorhandene Datei `data\gameorama.sqlite` bleibt beim Installieren unverändert.
+
 ## Rollen
 
 | Benutzer | Passwort | Rechte |
