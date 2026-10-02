@@ -70,10 +70,11 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
     <div className="device-page maintenance-edit">
       <header className="device-title">
         <div>
-          <h1>Wartung bearbeiten</h1>
-          <p className="muted">
-            {device.name} · Nr. {device.number}
-          </p>
+          <h1>
+            <span className="device-title-name">{device.name}</span>
+            <span className="device-number">Nr. {device.number}</span>
+          </h1>
+          <p className="muted">Wartung bearbeiten</p>
         </div>
       </header>
 
