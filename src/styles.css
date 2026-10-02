@@ -338,4 +338,22 @@ td .btn.tiny { margin-top: 0.4rem; }
   .device-meta { grid-column: 1; }
   .user-form { grid-template-columns: 1fr; }
   .menu-panel { right: auto; left: 0; }
+  .user-table thead { display: none; }
+  .user-table,
+  .user-table tbody,
+  .user-table tr,
+  .user-table td { display: block; width: 100%; }
+  .user-table tr {
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 0 0.35rem;
+  }
+  .user-table td { border: 0; padding: 0.12rem 0; }
+  .user-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  .user-row-actions { white-space: normal; padding-top: 0.45rem; }
 }

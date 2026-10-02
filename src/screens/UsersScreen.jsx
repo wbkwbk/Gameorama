@@ -239,10 +239,10 @@ export default function UsersScreen({
               <tbody>
                 {users.map((account) => (
                   <tr key={account.username}>
-                    <td>{account.username}</td>
-                    <td>{account.name}</td>
-                    <td>{roleLabel(account.role)}</td>
-                    <td>{account.comment}</td>
+                    <td data-label="Benutzername">{account.username}</td>
+                    <td data-label="Name">{account.name}</td>
+                    <td data-label="Rolle">{roleLabel(account.role)}</td>
+                    <td data-label="Kommentar">{account.comment}</td>
                     <td className="user-row-actions">
                       <button type="button" className="btn tiny secondary" onClick={() => {
                         setBanner(null)
