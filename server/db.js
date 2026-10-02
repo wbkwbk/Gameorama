@@ -754,9 +754,48 @@ function seedState(database, state) {
   })
 }
 
+function assertGroupAndAssignmentRights(previous, state, actor) {
+  const superUser = actor?.role === 'super'
+  const previousGroups = new Map(
+    previous.groups.map((group) => [String(group.id), String(group.name ?? '').trim()]),
+  )
+  for (const group of state.groups) {
+    const id = String(group.id)
+    const name = String(group.name ?? '').trim()
+    if (!previousGroups.has(id) || previousGroups.get(id) === name) continue
+    if (!superUser) throw new Error('Keine Berechtigung')
+    if (!name) throw new Error('Bitte einen Gruppennamen angeben.')
+  }
+
+  const groupIds = new Set(state.groups.map((group) => String(group.id)))
+  const previousDevices = new Map(
+    previous.devices.map((device) => [String(device.id), String(device.groupId)]),
+  )
+  for (const device of state.devices) {
+    const id = String(device.id)
+    const groupId = String(device.groupId)
+    if (!previousDevices.has(id) || previousDevices.get(id) === groupId) continue
+    if (!superUser) throw new Error('Keine Berechtigung')
+    if (!groupIds.has(groupId)) throw new Error('Die Gruppe gibt es nicht mehr.')
+  }
+
+  const deviceIds = new Set(state.devices.map((device) => String(device.id)))
+  const previousMaintenances = new Map(
+    previous.maintenances.map((item) => [String(item.id), String(item.deviceId)]),
+  )
+  for (const item of state.maintenances) {
+    const id = String(item.id)
+    const deviceId = String(item.deviceId)
+    if (!previousMaintenances.has(id) || previousMaintenances.get(id) === deviceId) continue
+    if (!superUser) throw new Error('Keine Berechtigung')
+    if (!deviceIds.has(deviceId)) throw new Error('Das Gerät gibt es nicht mehr.')
+  }
+}
+
 export function writeState(database, state, actor = null) {
   if (!isState(state)) throw new Error('Ungültige Daten')
   const previous = readState(database)
+  assertGroupAndAssignmentRights(previous, state, actor)
   const next = {
     ...state,
     devices: preserveNotes(prepareDeviceNumbers(state.devices), previous.devices, actor),

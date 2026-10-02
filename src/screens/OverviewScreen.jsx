@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { deviceStatus, formatDisplayDate, nextFreeDeviceNumber } from '../model.js'
+import { deviceStatus, formatDisplayDate, nextFreeDeviceNumber, sortDevices } from '../model.js'
 import ResizableCard, { trackPointer, usePanelResize } from '../ResizableCard.jsx'
 import { NUDGE_STEP, NUDGE_STEP_LARGE, readPanelSize, writePanelSize } from '../panelSize.js'
 
@@ -140,6 +140,18 @@ function DeviceListFrame({ children, itemKey, storageKey, label }) {
   )
 }
 
+const SORT_KEY = 'gameorama-device-sort'
+
+function readDeviceSort() {
+  try {
+    const value = window.localStorage.getItem(SORT_KEY)
+    if (value === 'name-asc' || value === 'name-desc' || value === 'due') return value
+  } catch {
+    // Die Vorgabe gilt, wenn der Browser keinen Speicher freigibt.
+  }
+  return 'due'
+}
+
 export default function OverviewScreen({
   db,
   today,
@@ -156,6 +168,16 @@ export default function OverviewScreen({
   const [deviceDrafts, setDeviceDrafts] = useState({})
   const [deviceNumbers, setDeviceNumbers] = useState({})
   const [deviceErrors, setDeviceErrors] = useState({})
+  const [sortMode, setSortMode] = useState(readDeviceSort)
+
+  function changeSort(value) {
+    setSortMode(value)
+    try {
+      window.localStorage.setItem(SORT_KEY, value)
+    } catch {
+      // Die Auswahl gilt dann nur für diesen Besuch.
+    }
+  }
 
   const counts = { overdue: 0, soon: 0, ok: 0, none: 0 }
   for (const device of db.devices) {
@@ -210,7 +232,12 @@ export default function OverviewScreen({
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
       {db.groups.map((group) => {
-        const devices = db.devices.filter((device) => device.groupId === group.id)
+        const devices = sortDevices(
+          db.devices.filter((device) => device.groupId === group.id),
+          db.maintenances,
+          today,
+          sortMode,
+        )
         return (
           <ResizableCard
             as="section"
@@ -221,11 +248,25 @@ export default function OverviewScreen({
           >
             <header className="group-head">
               <h2>{group.name}</h2>
-              {isSuper && (
-                <button type="button" className="btn tiny danger" onClick={() => onDeleteGroup(group)}>
-                  Gruppe löschen
-                </button>
-              )}
+              <div className="group-tools">
+                <label className="sort-field">
+                  Sortierung
+                  <select
+                    aria-label={`Sortierung für ${group.name}`}
+                    value={sortMode}
+                    onChange={(event) => changeSort(event.target.value)}
+                  >
+                    <option value="name-asc">Gerätename aufsteigend</option>
+                    <option value="name-desc">Gerätename absteigend</option>
+                    <option value="due">Wartungsdatum</option>
+                  </select>
+                </label>
+                {isSuper && (
+                  <button type="button" className="btn tiny danger" onClick={() => onDeleteGroup(group)}>
+                    Gruppe löschen
+                  </button>
+                )}
+              </div>
             </header>
             {devices.length === 0 ? (
               <p className="empty">Keine Geräte in dieser Gruppe.</p>

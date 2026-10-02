@@ -722,3 +722,188 @@ test('a maintenance stores Wartungsbeschrieb and documents survive state saves',
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('super can rename groups, move devices and maintenances, and copy an open maintenance', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  const { server, database } = await startServer({ port: 0, dbPath: file })
+  const { port } = server.address()
+  const base = `http://127.0.0.1:${port}`
+  try {
+    const admin = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'super' }),
+    }).then((response) => response.json())
+    const anna = await fetch(`${base}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'anna', password: 'wartung' }),
+    }).then((response) => response.json())
+
+    const state = await fetch(`${base}/api/state`).then((response) => response.json())
+    const oilBefore = state.maintenances.find((item) => item.id === 'm-flipper-oil')
+    const upload = await fetch(
+      `${base}/api/documents?owner=m-flipper-oil&filename=${encodeURIComponent('Oelanleitung.txt')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.token}`, 'Content-Type': 'application/octet-stream' },
+        body: 'Lager ölen.',
+      },
+    )
+    assert.equal(upload.status, 200)
+    const savedDoc = await upload.json()
+
+    const renamed = structuredClone(state)
+    renamed.groups.find((group) => group.id === 'g-arcade').name = 'Spielautomaten'
+    const annaRename = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(renamed),
+    })
+    assert.equal(annaRename.status, 403)
+    const unchanged = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(unchanged.groups.find((group) => group.id === 'g-arcade').name, 'Arcade-Automaten')
+
+    const adminRename = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(renamed),
+    })
+    assert.equal(adminRename.status, 200)
+    const named = await adminRename.json()
+    assert.equal(named.groups.find((group) => group.id === 'g-arcade').name, 'Spielautomaten')
+
+    const movedDevice = structuredClone(named)
+    movedDevice.devices.find((device) => device.id === 'd-flipper').groupId = 'g-haus'
+    const annaMoveDevice = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(movedDevice),
+    })
+    assert.equal(annaMoveDevice.status, 403)
+    const stillArcade = await fetch(`${base}/api/state`).then((response) => response.json())
+    assert.equal(stillArcade.devices.find((device) => device.id === 'd-flipper').groupId, 'g-arcade')
+
+    const adminMoveDevice = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(movedDevice),
+    })
+    assert.equal(adminMoveDevice.status, 200)
+    const housed = await adminMoveDevice.json()
+    assert.equal(housed.devices.find((device) => device.id === 'd-flipper').groupId, 'g-haus')
+    const oilHoused = housed.maintenances.find((item) => item.id === 'm-flipper-oil')
+    assert.equal(oilHoused.deviceId, 'd-flipper')
+    assert.equal(oilHoused.detail, oilBefore.detail)
+    assert.equal(oilHoused.status, 'offen')
+    assert.equal(oilHoused.performedBy, '')
+
+    const movedMaintenance = structuredClone(housed)
+    const moving = movedMaintenance.maintenances.find((item) => item.id === 'm-flipper-oil')
+    moving.deviceId = 'd-vr'
+    const annaMoveMaintenance = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(movedMaintenance),
+    })
+    assert.equal(annaMoveMaintenance.status, 403)
+
+    const adminMoveMaintenance = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(movedMaintenance),
+    })
+    assert.equal(adminMoveMaintenance.status, 200)
+    const afterMove = await adminMoveMaintenance.json()
+    const movedOil = afterMove.maintenances.find((item) => item.id === 'm-flipper-oil')
+    assert.equal(movedOil.deviceId, 'd-vr')
+    assert.equal(movedOil.status, 'offen')
+    assert.equal(movedOil.performedBy, '')
+    assert.equal(movedOil.completedAt, null)
+    assert.equal(movedOil.dueDate, oilBefore.dueDate)
+    assert.equal(movedOil.detail, oilBefore.detail)
+    assert.equal(movedOil.createdBy, 'Jonas Keller')
+    assert.equal(listDocuments(database, 'm-flipper-oil').length, 1)
+    const stored = database.prepare('SELECT stored_name FROM documents WHERE id = ?').get(savedDoc.id)
+    assert.equal(existsSync(path.join(uploadsDirectory(database), stored.stored_name)), true)
+
+    const done = structuredClone(afterMove)
+    const klima = done.maintenances.find((item) => item.id === 'm-klima')
+    klima.status = 'erledigt'
+    klima.performedBy = 'Hacker'
+    klima.completedAt = '2026-10-02'
+    const performed = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(done),
+    })
+    assert.equal(performed.status, 200)
+    const performedState = await performed.json()
+    const moveDone = structuredClone(performedState)
+    moveDone.maintenances.find((item) => item.id === 'm-klima').deviceId = 'd-race'
+    const movedDoneResponse = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(moveDone),
+    })
+    assert.equal(movedDoneResponse.status, 200)
+    const movedDone = await movedDoneResponse.json()
+    const finished = movedDone.maintenances.find((item) => item.id === 'm-klima')
+    assert.equal(finished.deviceId, 'd-race')
+    assert.equal(finished.status, 'erledigt')
+    assert.equal(finished.performedBy, 'Anna Berger')
+    assert.equal(finished.completedAt, '2026-10-02')
+
+    const copyState = structuredClone(movedDone)
+    copyState.maintenances.push({
+      id: 'm-copy',
+      deviceId: 'd-dance',
+      dueDate: movedOil.dueDate,
+      intervalWeeks: movedOil.intervalWeeks,
+      description: movedOil.description,
+      detail: movedOil.detail,
+      createdBy: 'Hacker',
+      status: 'erledigt',
+      performedBy: 'Anna Berger',
+      completedAt: '2026-10-02',
+    })
+    const annaCopy = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(anna.token),
+      body: JSON.stringify(copyState),
+    })
+    assert.equal(annaCopy.status, 403)
+    const adminCopy = await fetch(`${base}/api/state`, {
+      method: 'PUT',
+      headers: authHeaders(admin.token),
+      body: JSON.stringify(copyState),
+    })
+    assert.equal(adminCopy.status, 200)
+    const copiedState = await adminCopy.json()
+    const copy = copiedState.maintenances.find((item) => item.id === 'm-copy')
+    assert.equal(copy.status, 'offen')
+    assert.equal(copy.performedBy, '')
+    assert.equal(copy.completedAt, null)
+    assert.equal(copy.createdBy, 'Jonas Keller')
+    assert.equal(copy.deviceId, 'd-dance')
+    assert.equal(copy.dueDate, movedOil.dueDate)
+    assert.equal(copy.intervalWeeks, movedOil.intervalWeeks)
+    assert.equal(copy.description, movedOil.description)
+    assert.equal(copy.detail, movedOil.detail)
+    assert.equal(listDocuments(database, 'm-copy').length, 0)
+    assert.equal(listDocuments(database, 'm-flipper-oil').map((item) => item.id).join(','), savedDoc.id)
+
+    const users = database.prepare('SELECT username FROM users ORDER BY username').all()
+    assert.deepEqual(users.map((row) => row.username), ['admin', 'anna'])
+    const sessions = database.prepare('SELECT COUNT(*) AS count FROM sessions').get()
+    assert.equal(Number(sessions.count), 2)
+    const stillSuper = await fetch(`${base}/api/users`, { headers: authHeaders(admin.token) })
+    assert.equal(stillSuper.status, 200)
+    assert.equal(copiedState.documentation.length, state.documentation.length)
+    assert.equal(copiedState.documentation[0].userName, 'Jonas Keller')
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

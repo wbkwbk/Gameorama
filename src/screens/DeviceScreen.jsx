@@ -69,6 +69,98 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
   )
 }
 
+function deviceChoiceLabel(item, groups) {
+  const group = groups.find((entry) => entry.id === item.groupId)
+  return `${item.name} (Nr. ${item.number})${group ? ` · ${group.name}` : ''}`
+}
+
+function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [copyOpen, setCopyOpen] = useState(false)
+  const [moveTarget, setMoveTarget] = useState(devices[0]?.id || '')
+  const [copyTarget, setCopyTarget] = useState(devices[0]?.id || '')
+
+  useEffect(() => {
+    setMoveTarget((current) => (devices.some((device) => device.id === current) ? current : devices[0]?.id || ''))
+    setCopyTarget((current) => (devices.some((device) => device.id === current) ? current : devices[0]?.id || ''))
+  }, [devices])
+
+  if (devices.length === 0) return null
+
+  return (
+    <div className="maint-transfer">
+      {moveOpen ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            onMove(item.id, moveTarget)
+          }}
+        >
+          <label>
+            Zielgerät
+            <select
+              aria-label={`Zielgerät für ${item.description}`}
+              value={moveTarget}
+              onChange={(event) => setMoveTarget(event.target.value)}
+            >
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {deviceChoiceLabel(device, groups)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="user-actions">
+            <button type="submit" className="btn tiny secondary">Zuordnen</button>
+            <button type="button" className="btn tiny ghost" onClick={() => setMoveOpen(false)}>
+              Abbrechen
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button type="button" className="btn tiny secondary" onClick={() => setMoveOpen(true)}>
+          Wartung einem anderen Gerät zuordnen
+        </button>
+      )}
+      {copyOpen ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault()
+            onCopy(item.id, copyTarget)
+            setCopyOpen(false)
+          }}
+        >
+          <label>
+            Zielgerät
+            <select
+              aria-label={`Kopie von ${item.description} zuordnen`}
+              value={copyTarget}
+              onChange={(event) => setCopyTarget(event.target.value)}
+            >
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {deviceChoiceLabel(device, groups)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="maint-note">Es werden nur die Textfelder kopiert, keine Dokumente.</p>
+          <div className="user-actions">
+            <button type="submit" className="btn tiny secondary">Kopieren</button>
+            <button type="button" className="btn tiny ghost" onClick={() => setCopyOpen(false)}>
+              Abbrechen
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button type="button" className="btn tiny secondary" onClick={() => setCopyOpen(true)}>
+          Wartung kopieren
+        </button>
+      )}
+    </div>
+  )
+}
+
 function MaintenanceDetailRead({ item, documents, token, isSuper, onDocuments, storageKey }) {
   return (
     <ResizableCard
@@ -102,6 +194,8 @@ export default function DeviceScreen({
   onSaveDetail,
   onAddMaintenance,
   onDeleteMaintenance,
+  onMoveMaintenance,
+  onCopyMaintenance,
   onDeleteDevice,
 }) {
   const [notes, setNotes] = useState(device.notes)
@@ -147,6 +241,7 @@ export default function DeviceScreen({
     .filter((item) => item.deviceId === device.id)
     .slice()
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+  const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
   const legacy = db.documentation.filter((item) => item.deviceId === device.id)
 
@@ -257,6 +352,15 @@ export default function DeviceScreen({
                           >
                             Löschen
                           </button>
+                        )}
+                        {isSuper && (
+                          <MaintenanceTransfer
+                            item={item}
+                            devices={otherDevices}
+                            groups={db.groups}
+                            onMove={onMoveMaintenance}
+                            onCopy={onCopyMaintenance}
+                          />
                         )}
                       </td>
                     </tr>

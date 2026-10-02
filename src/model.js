@@ -63,6 +63,24 @@ export function maintenanceStatus(maintenance, today) {
   }
 }
 
+function compareDeviceNames(a, b) {
+  return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'de', { sensitivity: 'accent' })
+}
+
+const URGENCY_ORDER = { overdue: 0, soon: 1, ok: 2, none: 3 }
+
+export function sortDevices(devices, maintenances, today, mode = 'due') {
+  const list = devices.slice()
+  if (mode === 'name-asc') return list.sort(compareDeviceNames)
+  if (mode === 'name-desc') return list.sort((a, b) => compareDeviceNames(b, a))
+  return list.sort((a, b) => {
+    const left = URGENCY_ORDER[deviceStatus(a.id, maintenances, today).level]
+    const right = URGENCY_ORDER[deviceStatus(b.id, maintenances, today).level]
+    if (left !== right) return left - right
+    return compareDeviceNames(a, b)
+  })
+}
+
 export function deviceStatus(deviceId, maintenances, today) {
   const items = maintenances.filter(
     (item) => item.deviceId === deviceId && item.status !== 'erledigt',
@@ -302,6 +320,37 @@ export function addGroup(db, name) {
   }
 }
 
+export function renameGroup(db, groupId, name) {
+  const trimmed = String(name ?? '').trim()
+  if (!trimmed) return { ok: false, error: 'Bitte einen Gruppennamen angeben.' }
+  if (!db.groups.some((group) => group.id === groupId)) {
+    return { ok: false, error: 'Die Gruppe gibt es nicht mehr.' }
+  }
+  return {
+    ok: true,
+    db: {
+      ...db,
+      groups: db.groups.map((group) => (group.id === groupId ? { ...group, name: trimmed } : group)),
+    },
+  }
+}
+
+export function moveDevice(db, deviceId, groupId) {
+  if (!db.devices.some((device) => device.id === deviceId)) {
+    return { ok: false, error: 'Das Gerät gibt es nicht mehr.' }
+  }
+  if (!db.groups.some((group) => group.id === groupId)) {
+    return { ok: false, error: 'Die Gruppe gibt es nicht mehr.' }
+  }
+  return {
+    ok: true,
+    db: {
+      ...db,
+      devices: db.devices.map((device) => (device.id === deviceId ? { ...device, groupId } : device)),
+    },
+  }
+}
+
 export function deleteGroup(db, groupId) {
   const deviceIds = new Set(
     db.devices.filter((device) => device.groupId === groupId).map((device) => device.id),
@@ -396,6 +445,55 @@ export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, descripti
           intervalWeeks: interval,
           description: text,
           detail: String(detail ?? ''),
+          createdBy: creator,
+          status: 'offen',
+          performedBy: '',
+          completedAt: null,
+          createdAt: createdAt || new Date().toISOString(),
+        },
+      ],
+    },
+  }
+}
+
+export function moveMaintenance(db, maintenanceId, targetDeviceId) {
+  const source = db.maintenances.find((item) => item.id === maintenanceId)
+  if (!source) return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
+  if (!db.devices.some((device) => device.id === targetDeviceId)) {
+    return { ok: false, error: 'Das Gerät gibt es nicht mehr.' }
+  }
+  return {
+    ok: true,
+    db: {
+      ...db,
+      maintenances: db.maintenances.map((item) =>
+        item.id === maintenanceId ? { ...item, deviceId: targetDeviceId } : item,
+      ),
+    },
+  }
+}
+
+export function copyMaintenance(db, maintenanceId, targetDeviceId, createdBy, createdAt) {
+  const source = db.maintenances.find((item) => item.id === maintenanceId)
+  if (!source) return { ok: false, error: 'Diese Wartung gibt es nicht mehr.' }
+  if (!db.devices.some((device) => device.id === targetDeviceId)) {
+    return { ok: false, error: 'Das Gerät gibt es nicht mehr.' }
+  }
+  const creator = String(createdBy ?? '').trim()
+  if (!creator) return { ok: false, error: 'Der Erfasser der Wartung fehlt.' }
+  return {
+    ok: true,
+    db: {
+      ...db,
+      maintenances: [
+        ...db.maintenances,
+        {
+          id: uid(),
+          deviceId: targetDeviceId,
+          dueDate: source.dueDate,
+          intervalWeeks: source.intervalWeeks,
+          description: source.description,
+          detail: String(source.detail ?? ''),
           createdBy: creator,
           status: 'offen',
           performedBy: '',

@@ -3,10 +3,14 @@ import {
   addDevice,
   addGroup,
   addMaintenance,
+  copyMaintenance,
   deleteDevice,
   deleteGroup,
   deleteMaintenance,
   markPerformed,
+  moveDevice,
+  moveMaintenance,
+  renameGroup,
   roleLabel,
   todayISO,
   updateDeviceNotes,
@@ -17,8 +21,9 @@ import LoginScreen from './screens/LoginScreen.jsx'
 import OverviewScreen from './screens/OverviewScreen.jsx'
 import DeviceScreen from './screens/DeviceScreen.jsx'
 import UsersScreen from './screens/UsersScreen.jsx'
+import GroupsScreen from './screens/GroupsScreen.jsx'
 
-function SuperMenu({ onUsers }) {
+function SuperMenu({ onUsers, onGroups }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -62,6 +67,16 @@ function SuperMenu({ onUsers }) {
             }}
           >
             Benutzerverwaltung
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onGroups()
+            }}
+          >
+            Gruppen verwalten
           </button>
         </div>
       )}
@@ -184,6 +199,10 @@ export default function App() {
                 setNotice(null)
                 setRoute({ name: 'users' })
               }}
+              onGroups={() => {
+                setNotice(null)
+                setRoute({ name: 'groups' })
+              }}
             />
           )}
           <button type="button" className="btn ghost" onClick={logout}>
@@ -244,6 +263,32 @@ export default function App() {
                 },
               })
             }}
+            onMoveMaintenance={(maintenanceId, targetDeviceId) => {
+              const result = moveMaintenance(db, maintenanceId, targetDeviceId)
+              if (!result.ok) {
+                setNotice({ tone: 'error', text: result.error })
+                return
+              }
+              const target = db.devices.find((item) => item.id === targetDeviceId)
+              commit(result.db)
+              setNotice({
+                tone: 'ok',
+                text: `Wartung wurde ${target ? `«${target.name}»` : 'dem anderen Gerät'} zugeordnet.`,
+              })
+            }}
+            onCopyMaintenance={(maintenanceId, targetDeviceId) => {
+              const result = copyMaintenance(db, maintenanceId, targetDeviceId, user.name)
+              if (!result.ok) {
+                setNotice({ tone: 'error', text: result.error })
+                return
+              }
+              const target = db.devices.find((item) => item.id === targetDeviceId)
+              commit(result.db)
+              setNotice({
+                tone: 'ok',
+                text: `Wartung wurde nach ${target ? `«${target.name}»` : 'dem Gerät'} kopiert. Nur die Textfelder, keine Dokumente.`,
+              })
+            }}
             onDeleteDevice={() => {
               askConfirm({
                 title: 'Gerät löschen',
@@ -255,6 +300,34 @@ export default function App() {
                   setNotice({ tone: 'ok', text: `${device.name} wurde gelöscht.` })
                 },
               })
+            }}
+          />
+        ) : route.name === 'groups' && isSuper ? (
+          <GroupsScreen
+            db={db}
+            notice={notice}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onRenameGroup={(groupId, name) => {
+              const result = renameGroup(db, groupId, name)
+              if (!result.ok) return result.error
+              commit(result.db)
+              setNotice({ tone: 'ok', text: 'Gruppe umbenannt.' })
+              return null
+            }}
+            onMoveDevice={(deviceId, groupId) => {
+              const result = moveDevice(db, deviceId, groupId)
+              if (!result.ok) return result.error
+              const deviceItem = db.devices.find((item) => item.id === deviceId)
+              const group = result.db.groups.find((item) => item.id === groupId)
+              commit(result.db)
+              setNotice({
+                tone: 'ok',
+                text: `${deviceItem?.name || 'Das Gerät'} ist jetzt in «${group?.name || 'der Gruppe'}».`,
+              })
+              return null
             }}
           />
         ) : route.name === 'users' && isSuper ? (
