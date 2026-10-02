@@ -11,6 +11,22 @@ npm run dev
 
 Die App läuft dann auf [http://localhost:5173](http://localhost:5173).
 
+## Produktion
+
+Für den Betrieb ohne den Vite-Entwicklungsserver braucht es Node.js 22 oder neuer. Ein Prozess liefert die gebaute Oberfläche und die API.
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+Die Anwendung läuft dann auf [http://127.0.0.1:3001](http://127.0.0.1:3001). Der Port kommt aus der Umgebungsvariable `PORT`, sonst `3001`.
+
+Der Cloudflare-Ursprung für die Produktions-App ist `http://127.0.0.1:3001`. Der Ursprung `http://127.0.0.1:5173` gilt nur für `npm run dev`.
+
+`npm run build` schreibt nach `dist/` und lässt die Daten stehen. Die SQLite-Datei liegt in `data/gameorama.sqlite`, hochgeladene Dokumente in `data/uploads/`.
+
 ## Rollen
 
 | Benutzer | Passwort | Rechte |

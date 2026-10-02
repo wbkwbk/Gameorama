@@ -26,6 +26,26 @@ import {
 } from './db.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const distDir = path.join(root, 'dist')
+
+const STATIC_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+}
 
 function send(response, status, body) {
   const payload = JSON.stringify(body)
@@ -111,6 +131,49 @@ function readUpload(request) {
       if (!failed) reject(error)
     })
   })
+}
+
+function distFile(urlPath) {
+  let decoded
+  try {
+    decoded = decodeURIComponent(urlPath)
+  } catch {
+    return null
+  }
+  if (decoded.includes('\0')) return null
+  const relative = decoded.replace(/^[/\\]+/, '')
+  const file = path.resolve(distDir, relative)
+  const fromDist = path.relative(distDir, file)
+  if (fromDist.startsWith('..') || path.isAbsolute(fromDist)) return null
+  return file
+}
+
+function pipeFile(response, filePath, method) {
+  const stat = statSync(filePath)
+  const ext = path.extname(filePath).toLowerCase()
+  response.writeHead(200, {
+    'Content-Type': STATIC_TYPES[ext] || 'application/octet-stream',
+    'Content-Length': stat.size,
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+  })
+  if (method === 'HEAD') {
+    response.end()
+    return
+  }
+  createReadStream(filePath).pipe(response)
+}
+
+function serveFrontend(response, pathname, method) {
+  const file = distFile(pathname)
+  if (file && existsSync(file) && statSync(file).isFile()) {
+    pipeFile(response, file, method)
+    return true
+  }
+  const index = path.join(distDir, 'index.html')
+  if (!existsSync(index)) return false
+  pipeFile(response, index, method)
+  return true
 }
 
 function streamDocument(response, doc) {
@@ -323,6 +386,16 @@ export function startServer({ port = 3001, dbPath }) {
         send(response, 200, readState(database))
         return
       }
+      if (pathname === '/api' || pathname.startsWith('/api/')) {
+        send(response, 404, { error: 'Nicht gefunden' })
+        return
+      }
+      if (
+        (request.method === 'GET' || request.method === 'HEAD') &&
+        serveFrontend(response, pathname, request.method)
+      ) {
+        return
+      }
       send(response, 404, { error: 'Nicht gefunden' })
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : 'Ungültige Daten'
@@ -352,5 +425,12 @@ if (isDirectRun) {
   startServer({ port, dbPath }).then(() => {
     console.log(`SQLite bereit: ${dbPath}`)
     console.log(`API bereit: http://127.0.0.1:${port}`)
+    if (process.env.npm_lifecycle_event === 'start') {
+      if (existsSync(path.join(distDir, 'index.html'))) {
+        console.log(`Oberfläche bereit: http://127.0.0.1:${port}`)
+      } else {
+        console.log('Kein Produktionsbuild in dist/. Zuerst npm run build ausführen.')
+      }
+    }
   })
 }
