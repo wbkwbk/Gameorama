@@ -15,7 +15,7 @@ export default function LoginScreen({ onLogin }) {
     <div className="login-page">
       <section className="login-hero">
         <p className="eyebrow">Spielhalle</p>
-        <h1>Gameorama</h1>
+        <h1>GAMEORAMA</h1>
         <p className="hero-lead">Wartungstool für Geräte, Termine und Dokumentation.</p>
         <ul className="legend">
           <li><i className="swatch ok" /> Nächste Wartung</li>

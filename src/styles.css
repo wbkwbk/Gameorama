@@ -32,7 +32,7 @@ body {
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 h1, h2, p { margin: 0; }
-h1, .brand-mark, .login-hero h1 {
+h1, .brand-mark {
   font-family: Fraunces, Georgia, serif;
   font-weight: 600;
 }
@@ -131,21 +131,35 @@ h1, .brand-mark, .login-hero h1 {
 }
 
 .login-page {
+  --login-ink: #2b2b2b;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
+  background: #fff;
+  color: var(--login-ink);
 }
 .login-hero {
   padding: 4.5rem 4rem;
-  background: var(--navy);
-  color: #f7f3ea;
+  background: #fff;
+  color: var(--login-ink);
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 .eyebrow { letter-spacing: 0.18em; text-transform: uppercase; color: #e7b089; font-size: 0.8rem; }
-.login-hero h1 { font-size: clamp(3.5rem, 7vw, 6rem); line-height: 0.9; margin: 0.4rem 0 1rem; }
+.login-page .eyebrow { color: var(--login-ink); }
+.login-hero h1 {
+  font-family: Montserrat, "Segoe UI", sans-serif;
+  font-weight: 800;
+  font-size: clamp(3.5rem, 7vw, 6rem);
+  line-height: 0.9;
+  margin: 0.4rem 0 1rem;
+  text-transform: uppercase;
+  color: var(--login-ink);
+}
 .hero-lead { max-width: 28rem; font-size: 1.25rem; color: #e7e0d4; }
+.login-page .hero-lead,
+.login-page .legend { color: var(--login-ink); }
 .legend { list-style: none; padding: 0; margin: 2rem 0 0; display: grid; gap: 0.6rem; }
 .legend li { display: flex; align-items: center; gap: 0.7rem; }
 .swatch { width: 0.9rem; height: 0.9rem; border-radius: 99px; display: inline-block; }
@@ -156,13 +170,18 @@ h1, .brand-mark, .login-hero h1 {
 .login-card {
   margin: auto;
   width: min(28rem, calc(100% - 2rem));
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--login-ink, var(--ink));
+  border: 1px solid #d0d0d0;
   border-radius: 1.4rem;
   padding: 2rem;
   box-shadow: var(--shadow);
 }
-.login-card h2 { font-size: 2rem; margin-bottom: 0.4rem; }
+.login-card h2 { font-size: 2rem; margin-bottom: 0.4rem; color: var(--login-ink, var(--ink)); }
+.login-page .muted { color: var(--login-ink); }
+.login-page label,
+.login-page input { color: var(--login-ink); }
+.login-page input { border-color: #c8c8c8; background: #fff; }
 .muted { color: var(--muted); }
 form { display: grid; gap: 0.9rem; margin-top: 1.2rem; }
 label { display: grid; gap: 0.35rem; font-weight: 600; }
