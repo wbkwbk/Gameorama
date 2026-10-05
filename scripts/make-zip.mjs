@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const includeRoots = [
   'install.cmd',
   'start.cmd',
+  'neue-datenbank.cmd',
   'package.json',
   'package-lock.json',
   'README.md',
@@ -157,6 +158,8 @@ files.sort((a, b) => a.name.localeCompare(b.name))
 const required = [
   'install.cmd',
   'start.cmd',
+  'neue-datenbank.cmd',
+  'scripts/neue-datenbank.mjs',
   'package.json',
   'README.md',
   'index.html',

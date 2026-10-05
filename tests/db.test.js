@@ -38,6 +38,47 @@ test('a new database stores the seed in SQLite', () => {
   }
 })
 
+test('openDatabase can create the schema without demo users', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  try {
+    const database = openDatabase(file, { seedDemoUsers: false })
+    const tables = database
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+         ORDER BY name`,
+      )
+      .all()
+      .map((row) => row.name)
+    assert.deepEqual(tables, [
+      'devices',
+      'documentation',
+      'documents',
+      'groups',
+      'maintenances',
+      'meta',
+      'sessions',
+      'users',
+    ])
+    assert.deepEqual(database.prepare('SELECT username FROM users').all(), [])
+    assert.equal(readState(database).groups.length > 0, true)
+    database.close()
+
+    const seeded = openDatabase(file)
+    assert.deepEqual(
+      seeded
+        .prepare('SELECT username FROM users ORDER BY username')
+        .all()
+        .map((row) => row.username),
+      ['admin', 'anna'],
+    )
+    seeded.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('maintenance changes survive a round trip through SQLite', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
   const file = path.join(dir, 'app.sqlite')

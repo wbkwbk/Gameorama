@@ -337,7 +337,7 @@ function migrate(database) {
   database.prepare(`UPDATE maintenances SET created_by = '' WHERE created_by IS NULL`).run()
 }
 
-export function openDatabase(filePath) {
+export function openDatabase(filePath, { seedDemoUsers = true } = {}) {
   mkdirSync(path.dirname(filePath), { recursive: true })
   const database = new DatabaseSync(filePath)
   database.exec('PRAGMA foreign_keys = ON')
@@ -351,9 +351,11 @@ export function openDatabase(filePath) {
     seedState(database, createSeedDb())
     database.prepare(`INSERT INTO meta (key, value) VALUES ('seeded', '1')`).run()
   }
-  const userCount = database.prepare('SELECT COUNT(*) AS count FROM users').get()
-  if (Number(userCount.count) === 0) {
-    for (const user of SEED_USERS) saveUser(database, user)
+  if (seedDemoUsers) {
+    const userCount = database.prepare('SELECT COUNT(*) AS count FROM users').get()
+    if (Number(userCount.count) === 0) {
+      for (const user of SEED_USERS) saveUser(database, user)
+    }
   }
   return database
 }

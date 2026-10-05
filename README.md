@@ -38,6 +38,8 @@ Das Paket `Gameorama-Wartungstool.zip` enthält die Quellen zum Installieren, oh
 
 Eine schon vorhandene Datei `data\gameorama.sqlite` bleibt beim Installieren unverändert.
 
+Nach der Bereitstellung `neue-datenbank.cmd` ausführen. Das legt `data/gameorama.sqlite` mit den Benutzern `superuser` und `user` an. Ist diese Datei schon vorhanden, bleibt sie unverändert. `neue-datenbank.cmd --force` ersetzt die Datenbankdatei; `data\uploads` bleibt erhalten.
+
 ## Rollen
 
 Benutzer  Standard Benutzer: Wartungen als durchgeführt markieren |
