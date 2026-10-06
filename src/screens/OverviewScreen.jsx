@@ -7,6 +7,7 @@ import {
   nextFreeDeviceNumber,
   sortDevices,
 } from '../model.js'
+import MovableStage from '../MovableStage.jsx'
 import ResizableCard from '../ResizableCard.jsx'
 import ResizableList from '../ResizableList.jsx'
 
@@ -109,7 +110,8 @@ export default function OverviewScreen({
 
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
-      {db.groups.map((group) => {
+      <MovableStage>
+        {db.groups.map((group) => {
         const devices = sortDevices(
           db.devices.filter((device) => device.groupId === group.id),
           db.maintenances,
@@ -121,11 +123,15 @@ export default function OverviewScreen({
             as="section"
             className="group"
             key={group.id}
+            movable
             storageKey={`group-list:${group.id}`}
             label={`Geräteliste ${group.name}`}
           >
-            <header className="group-head">
-              <h2>{group.name}</h2>
+            <header className="group-head drag-surface">
+              <div className="group-title">
+                <button type="button" className="drag-handle" aria-label={`${group.name} verschieben`} />
+                <h2>{group.name}</h2>
+              </div>
               <div className="group-tools">
                 <label className="sort-field">
                   Sortierung
@@ -227,7 +233,8 @@ export default function OverviewScreen({
             )}
           </ResizableCard>
         )
-      })}
+        })}
+      </MovableStage>
 
       {isSuper && (
         <form className="inline-form group-create" onSubmit={submitGroup}>
