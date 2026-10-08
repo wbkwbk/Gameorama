@@ -99,7 +99,7 @@ h1, .brand-mark {
   right: 0;
   top: calc(100% + 0.45rem);
   z-index: 30;
-  min-width: 14rem;
+  min-width: 18rem;
   padding: 0.35rem;
   background: var(--card);
   color: var(--ink);
@@ -116,6 +116,7 @@ h1, .brand-mark {
   padding: 0.7rem 0.8rem;
   font-weight: 700;
   color: var(--ink);
+  white-space: nowrap;
 }
 .menu-panel button:hover,
 .menu-panel button:focus-visible {
@@ -668,7 +669,10 @@ tr.level-ok td { background: #f7fbf8; }
   border: 1px solid var(--line);
   background: white;
 }
-.overview-table { min-width: 96rem; }
+.overview-table { min-width: 112rem; }
+.overview-table .done-btn { white-space: nowrap; }
+.overview-docs { min-width: 12rem; }
+.doc-empty { color: var(--muted); font-size: 0.9rem; }
 .overview-table .detail-cell {
   min-width: 14rem;
   max-width: 22rem;

@@ -35,6 +35,7 @@ import MaintenanceEditScreen from './screens/MaintenanceEditScreen.jsx'
 import UsersScreen from './screens/UsersScreen.jsx'
 import GroupsScreen from './screens/GroupsScreen.jsx'
 import MaintenanceOverviewScreen from './screens/MaintenanceOverviewScreen.jsx'
+import CompletedMaintenancesScreen from './screens/CompletedMaintenancesScreen.jsx'
 
 function AppMenu({ items }) {
   const [open, setOpen] = useState(false)
@@ -173,6 +174,19 @@ export default function App() {
     setConfirm(next)
   }
 
+  function completeMaintenance(maintenanceId) {
+    const result = markPerformed(db, maintenanceId, user, today)
+    if (!result.ok) {
+      setNotice({ tone: 'error', text: result.error })
+      return
+    }
+    commit(result.db)
+    setNotice({
+      tone: 'ok',
+      text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
+    })
+  }
+
   if (!user) {
     return <LoginScreen onLogin={login} />
   }
@@ -211,6 +225,13 @@ export default function App() {
                 onSelect: () => {
                   setNotice(null)
                   setRoute({ name: 'maintenance-overview' })
+                },
+              },
+              {
+                label: 'Durchgeführte Wartungen',
+                onSelect: () => {
+                  setNotice(null)
+                  setRoute({ name: 'completed-maintenances' })
                 },
               },
               ...(isSuper
@@ -272,18 +293,7 @@ export default function App() {
               setNotice(null)
               setRoute({ name: 'overview' })
             }}
-            onDone={(maintenanceId) => {
-              const result = markPerformed(db, maintenanceId, user, today)
-              if (!result.ok) {
-                setNotice({ tone: 'error', text: result.error })
-                return
-              }
-              commit(result.db)
-              setNotice({
-                tone: 'ok',
-                text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
-              })
-            }}
+            onDone={completeMaintenance}
             onSaveDetail={(maintenanceId, detail) => {
               const result = updateMaintenanceDetail(db, maintenanceId, detail)
               if (!result.ok) {
@@ -415,6 +425,20 @@ export default function App() {
           <MaintenanceOverviewScreen
             db={db}
             today={today}
+            token={user.token}
+            user={user}
+            notice={notice}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onOpenDevice={openDevice}
+            onDone={completeMaintenance}
+          />
+        ) : route.name === 'completed-maintenances' ? (
+          <CompletedMaintenancesScreen
+            db={db}
+            token={user.token}
             onBack={() => {
               setNotice(null)
               setRoute({ name: 'overview' })

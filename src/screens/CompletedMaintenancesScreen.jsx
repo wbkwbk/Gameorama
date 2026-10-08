@@ -1,16 +1,15 @@
 import { useMemo, useState } from 'react'
-import { maintenanceOverviewRows, performedActionLabel, sortMaintenanceOverview } from '../model.js'
+import { completedMaintenanceRows, sortCompletedMaintenances } from '../model.js'
 import { useDocuments } from '../DocumentLinks.jsx'
 import MaintenanceRecordTable from './MaintenanceRecordTable.jsx'
 
-export default function MaintenanceOverviewScreen({ db, today, token, user, notice, onBack, onOpenDevice, onDone }) {
-  const [sortMode, setSortMode] = useState('due')
+export default function CompletedMaintenancesScreen({ db, token, onBack, onOpenDevice }) {
+  const [sortMode, setSortMode] = useState('date')
   const documents = useDocuments(token)
   const rows = useMemo(
-    () => sortMaintenanceOverview(maintenanceOverviewRows(db), sortMode),
+    () => sortCompletedMaintenances(completedMaintenanceRows(db), sortMode),
     [db, sortMode],
   )
-  const actionLabel = performedActionLabel(user)
 
   return (
     <div className="maintenance-overview-page">
@@ -20,17 +19,19 @@ export default function MaintenanceOverviewScreen({ db, today, token, user, noti
 
       <header className="board-head">
         <div>
-          <h1>Wartungsübersicht</h1>
-          <p className="muted">Offene Wartungen, die noch zu erledigen sind.</p>
+          <h1>Durchgeführte Wartungen</h1>
+          <p className="muted">
+            Erledigte Wartungen aus dem Dokumentationsbereich. Nach Datum: neueste Durchführung zuerst. Nur zum Ansehen.
+          </p>
         </div>
         <div className="sort-switch" role="group" aria-label="Sortierung">
           <button
             type="button"
-            className={sortMode === 'due' ? 'btn secondary' : 'btn ghost'}
-            aria-pressed={sortMode === 'due'}
-            onClick={() => setSortMode('due')}
+            className={sortMode === 'date' ? 'btn secondary' : 'btn ghost'}
+            aria-pressed={sortMode === 'date'}
+            onClick={() => setSortMode('date')}
           >
-            Nach Fälligkeit
+            Nach Datum
           </button>
           <button
             type="button"
@@ -43,25 +44,16 @@ export default function MaintenanceOverviewScreen({ db, today, token, user, noti
         </div>
       </header>
 
-      {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
-
       <section className="group">
-        <h2>Offene Wartungen</h2>
+        <h2>Dokumentationsbereich</h2>
         {rows.length === 0 ? (
-          <p className="empty">Keine offenen Wartungen.</p>
+          <p className="empty">Noch keine durchgeführten Wartungen.</p>
         ) : (
           <MaintenanceRecordTable
             rows={rows}
-            today={today}
             documents={documents}
             token={token}
             onOpenDevice={onOpenDevice}
-            colorByDue
-            renderAction={(row) => (
-              <button type="button" className="done-btn" onClick={() => onDone(row.maintenanceId)}>
-                {actionLabel}
-              </button>
-            )}
           />
         )}
       </section>

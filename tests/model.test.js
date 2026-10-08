@@ -17,9 +17,12 @@ import {
   maintenanceEditError,
   maintenanceEditFields,
   nextFreeDeviceNumber,
+  completedMaintenanceRows,
   maintenanceOverviewRows,
   openMaintenances,
+  performedActionLabel,
   renameGroup,
+  sortCompletedMaintenances,
   sortDevices,
   sortMaintenanceOverview,
   sortedDocumentation,
@@ -160,31 +163,81 @@ test('documentation lists only completed maintenances, newest completion first',
   assert.deepEqual(openMaintenances(maintenances, 'd').map((item) => item.id), ['open-later'])
 })
 
-test('maintenance overview lists open tasks, completed records, and the documentation log', () => {
+test('completing a maintenance lists the successor as open and the finished row only as documentation', () => {
   const db = createSeedDb(new Date(2026, 9, 1))
-  const done = markPerformed(db, 'm-klima', { name: 'Anna Berger' }, today)
+  const prepared = {
+    ...db,
+    maintenances: db.maintenances.map((item) =>
+      item.id === 'm-klima' ? { ...item, dueDate: '2026-10-30', intervalWeeks: 4 } : item,
+    ),
+  }
+  const original = prepared.maintenances.find((item) => item.id === 'm-klima')
+  assert.equal(performedActionLabel({ name: 'Anna Berger', username: 'anna' }), 'Durchgeführt Anna Berger')
+  assert.equal(performedActionLabel({ name: '  ', username: 'anna' }), 'Durchgeführt anna')
+  assert.equal(maintenanceOverviewRows(prepared).some((row) => row.status !== 'offen'), false)
+  assert.equal(completedMaintenanceRows(prepared).length, 0)
+
+  const done = markPerformed(prepared, 'm-klima', { name: 'Anna Berger', username: 'anna' }, today)
   assert.equal(done.ok, true)
-  const rows = maintenanceOverviewRows(done.db)
-  assert.equal(rows.length, done.db.maintenances.length + done.db.documentation.length)
+  assert.equal(done.db.documentation.length, prepared.documentation.length)
 
-  const klima = rows.filter((row) => row.deviceName.includes('Klima'))
-  const completed = klima.find((row) => row.status === 'erledigt')
-  const open = klima.find((row) => row.status === 'offen')
-  assert.equal(completed.performedBy, 'Anna Berger')
-  assert.equal(completed.groupName, 'Haustechnik')
-  assert.equal(completed.deviceNumber, 5)
-  assert.equal(completed.createdBy, 'Jonas Keller')
-  assert.equal(open.performedBy, '')
-  assert.equal(open.statusLabel, 'offen')
+  const openRows = maintenanceOverviewRows(done.db)
+  assert.equal(openRows.every((row) => row.status === 'offen'), true)
+  assert.equal(openRows.some((row) => row.maintenanceId === 'm-klima'), false)
+  assert.equal(openRows.some((row) => row.id.startsWith('documentation:')), false)
+  const successor = openRows.find((row) => row.description === original.description && row.deviceNumber === 5)
+  assert.equal(successor.statusLabel, 'offen')
+  assert.equal(successor.performedBy, '')
+  assert.equal(successor.completedAt, '')
+  assert.equal(successor.createdBy, 'Anna Berger')
+  assert.equal(successor.groupName, 'Haustechnik')
+  assert.equal(successor.dueDate, addWeeks(original.dueDate, original.intervalWeeks))
+  assert.equal(successor.dueDate, '2026-11-27')
+  assert.equal(successor.intervalWeeks, 4)
+  assert.equal(successor.detail, original.detail)
 
-  const log = rows.find((row) => row.kind === 'documentation')
-  assert.equal(log.status, 'dokumentation')
-  assert.equal(log.statusLabel, 'Dokumentation')
-  assert.equal(log.groupName, 'Arcade-Automaten')
-  assert.equal(log.deviceName.includes('Flipper'), true)
-  assert.equal(log.dueDate, '')
-  assert.equal(log.performedBy, 'Jonas Keller')
-  assert.equal(log.description, 'Mechanik ölen und Kugeln prüfen')
+  const completed = completedMaintenanceRows(done.db)
+  assert.equal(completed.length, 1)
+  assert.equal(completed[0].maintenanceId, 'm-klima')
+  assert.equal(completed[0].status, 'erledigt')
+  assert.equal(completed[0].statusLabel, 'erledigt')
+  assert.equal(completed[0].performedBy, 'Anna Berger')
+  assert.equal(completed[0].completedAt, today)
+  assert.equal(completed[0].dueDate, '2026-10-30')
+  assert.equal(completed[0].intervalWeeks, 4)
+  assert.equal(completed[0].description, original.description)
+  assert.equal(completed[0].detail, original.detail)
+  assert.equal(completed[0].createdBy, 'Jonas Keller')
+  assert.equal(completed[0].groupName, 'Haustechnik')
+  assert.equal(completed[0].deviceNumber, 5)
+  assert.equal(completed.some((row) => row.id.startsWith('documentation:')), false)
+})
+
+test('completed maintenances sort by completion date, falling back to the due date', () => {
+  const rows = [
+    { id: 'a-old', groupName: 'Arcade', deviceName: 'Alpha', completedAt: '2026-09-01', dueDate: '2026-12-01', description: 'Alt' },
+    { id: 'a-new', groupName: 'Arcade', deviceName: 'Beta', completedAt: '2026-10-15', dueDate: '2026-01-01', description: 'Neu' },
+    { id: 'a-due-only', groupName: 'Arcade', deviceName: 'Gamma', completedAt: '', dueDate: '2026-10-20', description: 'Fällig' },
+    { id: 'h-mid', groupName: 'Haus', deviceName: 'Klima', completedAt: '2026-10-02', dueDate: '2026-09-20', description: 'Filter' },
+    { id: 'v-none', groupName: 'VR', deviceName: 'Quest', completedAt: '', dueDate: '', description: 'Linsen' },
+    { id: 'h-same', groupName: 'Haus', deviceName: 'Heizung', completedAt: '2026-10-02', dueDate: '2026-11-01', description: 'Prüfung' },
+  ]
+  assert.deepEqual(
+    sortCompletedMaintenances(rows).map((row) => row.id),
+    ['a-due-only', 'a-new', 'h-same', 'h-mid', 'a-old', 'v-none'],
+  )
+  assert.deepEqual(
+    sortCompletedMaintenances(rows, 'date').map((row) => row.id),
+    sortCompletedMaintenances(rows, 'other').map((row) => row.id),
+  )
+  assert.deepEqual(
+    sortCompletedMaintenances(rows, 'group').map((row) => row.id),
+    ['a-due-only', 'a-new', 'a-old', 'h-same', 'h-mid', 'v-none'],
+  )
+  assert.deepEqual(
+    sortCompletedMaintenances(rows, 'group').map((row) => row.groupName),
+    ['Arcade', 'Arcade', 'Arcade', 'Haus', 'Haus', 'VR'],
+  )
 })
 
 test('maintenance overview sorts by due date, then by group and device', () => {
@@ -226,14 +279,12 @@ test('seeded maintenances sort overdue first, and groups sort alphabetically', (
       'maintenance:m-vr',
       'maintenance:m-flipper-clean',
       'maintenance:m-race',
-      'documentation:doc-1',
     ],
   )
   const byGroup = sortMaintenanceOverview(maintenanceOverviewRows(db), 'group')
   assert.deepEqual(
     byGroup.map((row) => row.groupName),
     [
-      'Arcade-Automaten',
       'Arcade-Automaten',
       'Arcade-Automaten',
       'Arcade-Automaten',
@@ -249,9 +300,10 @@ test('seeded maintenances sort overdue first, and groups sort alphabetically', (
       'maintenance:m-dance',
       'maintenance:m-flipper-clean',
       'maintenance:m-race',
-      'documentation:doc-1',
     ],
   )
+  assert.equal(maintenanceOverviewRows(db).some((row) => row.id.startsWith('documentation:')), false)
+  assert.equal(completedMaintenanceRows(db).length, 0)
 })
 
 test('a maintenance stores Wartungsbeschrieb separately from the short description', () => {
