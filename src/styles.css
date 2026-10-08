@@ -669,9 +669,13 @@ tr.level-ok td { background: #f7fbf8; }
   border: 1px solid var(--line);
   background: white;
 }
-.overview-table { min-width: 112rem; }
-.overview-table .done-btn { white-space: nowrap; }
-.overview-docs { min-width: 12rem; }
+.overview-table { width: 100%; min-width: 72rem; }
+.overview-table .done-btn {
+  white-space: nowrap;
+  min-width: 0;
+}
+.overview-docs { min-width: 9rem; }
+.overview-docs .doc-row a { overflow-wrap: anywhere; }
 .doc-empty { color: var(--muted); font-size: 0.9rem; }
 .overview-table .detail-cell {
   min-width: 14rem;
