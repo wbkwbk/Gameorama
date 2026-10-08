@@ -34,8 +34,9 @@ import DeviceScreen from './screens/DeviceScreen.jsx'
 import MaintenanceEditScreen from './screens/MaintenanceEditScreen.jsx'
 import UsersScreen from './screens/UsersScreen.jsx'
 import GroupsScreen from './screens/GroupsScreen.jsx'
+import MaintenanceOverviewScreen from './screens/MaintenanceOverviewScreen.jsx'
 
-function SuperMenu({ onUsers, onGroups }) {
+function AppMenu({ items }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -63,33 +64,26 @@ function SuperMenu({ onUsers, onGroups }) {
         aria-label="Menü"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-controls="super-menu"
+        aria-controls="app-menu"
         onClick={() => setOpen((value) => !value)}
       >
         <span aria-hidden="true">☰</span>
       </button>
       {open && (
-        <div className="menu-panel" id="super-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false)
-              onUsers()
-            }}
-          >
-            Benutzerverwaltung
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false)
-              onGroups()
-            }}
-          >
-            Gruppen verwalten
-          </button>
+        <div className="menu-panel" id="app-menu" role="menu">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                item.onSelect()
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -210,18 +204,35 @@ export default function App() {
             <strong>{user.name}</strong>
             <span className={`role role-${user.role}`}>{roleLabel(user.role)}</span>
           </div>
-          {isSuper && (
-            <SuperMenu
-              onUsers={() => {
-                setNotice(null)
-                setRoute({ name: 'users' })
-              }}
-              onGroups={() => {
-                setNotice(null)
-                setRoute({ name: 'groups' })
-              }}
-            />
-          )}
+          <AppMenu
+            items={[
+              {
+                label: 'Wartungsübersicht',
+                onSelect: () => {
+                  setNotice(null)
+                  setRoute({ name: 'maintenance-overview' })
+                },
+              },
+              ...(isSuper
+                ? [
+                    {
+                      label: 'Benutzerverwaltung',
+                      onSelect: () => {
+                        setNotice(null)
+                        setRoute({ name: 'users' })
+                      },
+                    },
+                    {
+                      label: 'Gruppen verwalten',
+                      onSelect: () => {
+                        setNotice(null)
+                        setRoute({ name: 'groups' })
+                      },
+                    },
+                  ]
+                : []),
+            ]}
+          />
           <button type="button" className="btn ghost" onClick={logout}>
             Abmelden
           </button>
@@ -399,6 +410,16 @@ export default function App() {
               })
               return null
             }}
+          />
+        ) : route.name === 'maintenance-overview' ? (
+          <MaintenanceOverviewScreen
+            db={db}
+            today={today}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onOpenDevice={openDevice}
           />
         ) : route.name === 'users' && isSuper ? (
           <UsersScreen

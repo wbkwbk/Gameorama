@@ -648,11 +648,34 @@ tr.level-ok td { background: #f7fbf8; }
 .modal h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.2rem; }
 
-.users-page h1, .groups-page h1 { font-size: 2.4rem; letter-spacing: -0.03em; }
 .groups-page > .btn.device-back,
-.users-page > .btn.device-back {
+.users-page > .btn.device-back,
+.maintenance-overview-page > .btn.device-back {
   margin-bottom: 0.8rem;
 }
+.users-page h1, .groups-page h1, .maintenance-overview-page h1 {
+  font-size: 2.4rem;
+  letter-spacing: -0.03em;
+}
+.sort-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.sort-switch .btn { font-weight: 700; }
+.maintenance-overview-page .btn.ghost {
+  color: var(--navy);
+  border: 1px solid var(--line);
+  background: white;
+}
+.overview-table { min-width: 96rem; }
+.overview-table .detail-cell {
+  min-width: 14rem;
+  max-width: 22rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.maint-status.dokumentation { background: #ece7dc; color: var(--navy); }
 .rename-list, .assign-list { display: grid; gap: 0.75rem; margin-top: 0.8rem; }
 .device-list-frame > .rename-list,
 .device-list-frame > .assign-list {

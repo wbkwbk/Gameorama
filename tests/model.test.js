@@ -17,9 +17,11 @@ import {
   maintenanceEditError,
   maintenanceEditFields,
   nextFreeDeviceNumber,
+  maintenanceOverviewRows,
   openMaintenances,
   renameGroup,
   sortDevices,
+  sortMaintenanceOverview,
   sortedDocumentation,
   todayISO,
   updateMaintenanceDetail,
@@ -156,6 +158,100 @@ test('documentation lists only completed maintenances, newest completion first',
     ['done-later', 'done-early', 'old'],
   )
   assert.deepEqual(openMaintenances(maintenances, 'd').map((item) => item.id), ['open-later'])
+})
+
+test('maintenance overview lists open tasks, completed records, and the documentation log', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const done = markPerformed(db, 'm-klima', { name: 'Anna Berger' }, today)
+  assert.equal(done.ok, true)
+  const rows = maintenanceOverviewRows(done.db)
+  assert.equal(rows.length, done.db.maintenances.length + done.db.documentation.length)
+
+  const klima = rows.filter((row) => row.deviceName.includes('Klima'))
+  const completed = klima.find((row) => row.status === 'erledigt')
+  const open = klima.find((row) => row.status === 'offen')
+  assert.equal(completed.performedBy, 'Anna Berger')
+  assert.equal(completed.groupName, 'Haustechnik')
+  assert.equal(completed.deviceNumber, 5)
+  assert.equal(completed.createdBy, 'Jonas Keller')
+  assert.equal(open.performedBy, '')
+  assert.equal(open.statusLabel, 'offen')
+
+  const log = rows.find((row) => row.kind === 'documentation')
+  assert.equal(log.status, 'dokumentation')
+  assert.equal(log.statusLabel, 'Dokumentation')
+  assert.equal(log.groupName, 'Arcade-Automaten')
+  assert.equal(log.deviceName.includes('Flipper'), true)
+  assert.equal(log.dueDate, '')
+  assert.equal(log.performedBy, 'Jonas Keller')
+  assert.equal(log.description, 'Mechanik ölen und Kugeln prüfen')
+})
+
+test('maintenance overview sorts by due date, then by group and device', () => {
+  const rows = [
+    { id: 'vr-late', groupName: 'VR', deviceName: 'Quest', dueDate: '2026-11-01', description: 'Linsen' },
+    { id: 'arcade-overdue-b', groupName: 'Arcade', deviceName: 'Beta', dueDate: '2026-09-01', description: 'B' },
+    { id: 'arcade-overdue-a', groupName: 'Arcade', deviceName: 'Alpha', dueDate: '2026-09-01', description: 'A' },
+    { id: 'haus-mid', groupName: 'Haus', deviceName: 'Klima', dueDate: '2026-10-01', description: 'Filter' },
+    { id: 'arcade-doc', groupName: 'Arcade', deviceName: 'Alpha', dueDate: '', description: 'Protokoll' },
+    { id: 'haus-nodue', groupName: 'Haus', deviceName: 'Heizung', dueDate: '', description: 'Alt' },
+  ]
+  assert.deepEqual(
+    sortMaintenanceOverview(rows).map((row) => row.id),
+    ['arcade-overdue-a', 'arcade-overdue-b', 'haus-mid', 'vr-late', 'arcade-doc', 'haus-nodue'],
+  )
+  assert.deepEqual(
+    sortMaintenanceOverview(rows, 'due').map((row) => row.id),
+    ['arcade-overdue-a', 'arcade-overdue-b', 'haus-mid', 'vr-late', 'arcade-doc', 'haus-nodue'],
+  )
+  assert.deepEqual(
+    sortMaintenanceOverview(rows, 'group').map((row) => row.id),
+    ['arcade-overdue-a', 'arcade-overdue-b', 'arcade-doc', 'haus-mid', 'haus-nodue', 'vr-late'],
+  )
+  assert.deepEqual(
+    sortMaintenanceOverview(rows, 'due').map((row) => row.id),
+    sortMaintenanceOverview(rows, 'other').map((row) => row.id),
+  )
+})
+
+test('seeded maintenances sort overdue first, and groups sort alphabetically', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const byDue = sortMaintenanceOverview(maintenanceOverviewRows(db), 'due')
+  assert.deepEqual(
+    byDue.map((row) => row.id),
+    [
+      'maintenance:m-flipper-oil',
+      'maintenance:m-klima',
+      'maintenance:m-dance',
+      'maintenance:m-vr',
+      'maintenance:m-flipper-clean',
+      'maintenance:m-race',
+      'documentation:doc-1',
+    ],
+  )
+  const byGroup = sortMaintenanceOverview(maintenanceOverviewRows(db), 'group')
+  assert.deepEqual(
+    byGroup.map((row) => row.groupName),
+    [
+      'Arcade-Automaten',
+      'Arcade-Automaten',
+      'Arcade-Automaten',
+      'Arcade-Automaten',
+      'Arcade-Automaten',
+      'Haustechnik',
+      'VR & Konsolen',
+    ],
+  )
+  assert.deepEqual(
+    byGroup.filter((row) => row.groupName === 'Arcade-Automaten').map((row) => row.id),
+    [
+      'maintenance:m-flipper-oil',
+      'maintenance:m-dance',
+      'maintenance:m-flipper-clean',
+      'maintenance:m-race',
+      'documentation:doc-1',
+    ],
+  )
 })
 
 test('a maintenance stores Wartungsbeschrieb separately from the short description', () => {
