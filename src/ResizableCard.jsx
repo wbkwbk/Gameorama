@@ -1,4 +1,6 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
+import { canStartPanelDrag, useMovableStage } from './MovableStage.jsx'
+import { clampPanelPosition, viewportHostWidth } from './panelPosition.js'
 import {
   MIN_PANEL_WIDTH,
   NUDGE_STEP,
@@ -15,7 +17,7 @@ export function usePanelResize() {
   return useContext(PanelResizeContext)
 }
 
-export function trackPointer(event, onMove) {
+export function trackPointer(event, onMove, onEnd) {
   if (event.button != null && event.button !== 0) return
   const handle = event.currentTarget
   const origin = { x: event.clientX, y: event.clientY }
@@ -28,6 +30,7 @@ export function trackPointer(event, onMove) {
     handle.removeEventListener('pointerup', end)
     handle.removeEventListener('pointercancel', end)
     if (handle.hasPointerCapture(endEvent.pointerId)) handle.releasePointerCapture(endEvent.pointerId)
+    onEnd?.(endEvent)
   }
   handle.addEventListener('pointermove', move)
   handle.addEventListener('pointerup', end)
@@ -136,19 +139,107 @@ export function HorizontalHandle({ label, api }) {
   )
 }
 
+function hostWidthFor(stage) {
+  const node = stage?.stageRef.current
+  if (!node || typeof window === 'undefined') return 0
+  return viewportHostWidth(node.getBoundingClientRect().left, window.innerWidth)
+}
+
 export default function ResizableCard({
   storageKey,
   label,
   className = '',
   as: Tag = 'div',
   minReadable,
+  movable = false,
   children,
 }) {
   const api = useHorizontalResize(storageKey, { minReadable })
-  const classes = ['resizable-card', className, api.custom ? 'is-custom-width' : ''].filter(Boolean).join(' ')
+  const stage = useMovableStage()
+  const placed = Boolean(movable && stage)
+  const pos = placed ? stage.boxes[storageKey] : null
+  const stageRef = useRef(stage)
+  stageRef.current = stage
+  const posRef = useRef(pos)
+  posRef.current = pos
+  const [dragging, setDragging] = useState(false)
+  const registerRef = useRef(null)
+  registerRef.current = stage?.register
+
+  useLayoutEffect(() => {
+    if (!placed) return undefined
+    const node = api.ref.current
+    const register = registerRef.current
+    if (!node || !register) return undefined
+    return register(storageKey, node)
+  }, [placed, storageKey, api.ref])
+
+  const onDragPointerDown = useCallback((event) => {
+    const current = stageRef.current
+    const element = api.ref.current
+    if (!placed || !current || !element) return
+    if (!canStartPanelDrag(event.target, element)) return
+    event.preventDefault()
+    const start = posRef.current || { x: element.offsetLeft, y: element.offsetTop }
+    current.pinAll()
+    setDragging(true)
+    trackPointer(event, (move, origin) => {
+      const next = clampPanelPosition(
+        start.x + move.clientX - origin.x,
+        start.y + move.clientY - origin.y,
+        { width: element.getBoundingClientRect().width, hostWidth: hostWidthFor(current) },
+      )
+      current.move(storageKey, next)
+    }, () => {
+      setDragging(false)
+      current.commitAll()
+    })
+  }, [api.ref, placed, storageKey])
+
+  const onDragKeyDown = useCallback((event) => {
+    const current = stageRef.current
+    const element = api.ref.current
+    if (!placed || !current || !element) return
+    if (!(event.target instanceof Element) || !event.target.closest('.drag-handle')) return
+    const step = event.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP
+    const delta = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    }[event.key]
+    if (!delta) return
+    event.preventDefault()
+    const start = posRef.current || { x: 0, y: 0 }
+    current.pinAll()
+    const next = clampPanelPosition(start.x + delta[0], start.y + delta[1], {
+      width: element.getBoundingClientRect().width,
+      hostWidth: hostWidthFor(current),
+    })
+    current.move(storageKey, next)
+    current.commitAll()
+  }, [api.ref, placed, storageKey])
+
+  const classes = [
+    'resizable-card',
+    className,
+    api.custom ? 'is-custom-width' : '',
+    placed ? 'movable-card' : '',
+    dragging ? 'is-dragging' : '',
+  ].filter(Boolean).join(' ')
+  const style = {
+    ...(pos ? { left: `${pos.x}px`, top: `${pos.y}px` } : null),
+    ...api.style,
+  }
   return (
     <PanelResizeContext.Provider value={api}>
-      <Tag ref={api.ref} className={classes} style={api.style}>
+      <Tag
+        ref={api.ref}
+        className={classes}
+        style={style}
+        onPointerDown={placed ? onDragPointerDown : undefined}
+        onKeyDown={placed ? onDragKeyDown : undefined}
+      >
         <div className="resizable-card-body">{children}</div>
         <HorizontalHandle label={label} api={api} />
       </Tag>

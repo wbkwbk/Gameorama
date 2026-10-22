@@ -47,7 +47,7 @@ Super Benutzer: Geräte, Gruppen, Wartungen und Benutzer verwalten |
 
 Nach «Durchgeführt» wird die Wartung auf erledigt gesetzt. «Durchgeführt durch» enthält den angemeldeten Benutzer, das Fälligkeitsdatum bleibt stehen. Der Dokumentationsbereich listet die Wartungen des Geräts, die neueste zuerst. Ältere Dokumentationseinträge bleiben lesbar.
 
-Super Benutzer öffnen die Benutzerverwaltung über das Menü in der Kopfzeile. Dort lassen sich Benutzer anlegen, in allen Feldern ändern und löschen. Ein leeres Passwortfeld beim Bearbeiten behält das bisherige Passwort. Der letzte Super Benutzer kann nicht gelöscht oder zum Standard Benutzer gemacht werden.
+Das Menü in der Kopfzeile zeigt allen Benutzern die Wartungsübersicht. Super Benutzer öffnen dort zusätzlich die Benutzerverwaltung. Dort lassen sich Benutzer anlegen, in allen Feldern ändern und löschen. Ein leeres Passwortfeld beim Bearbeiten behält das bisherige Passwort. Der letzte Super Benutzer kann nicht gelöscht oder zum Standard Benutzer gemacht werden.
 
 Geräte, Wartungen, Dokumentation und Benutzer liegen in der SQLite-Datei `data/gameorama.sqlite`. Passwörter stehen dort nur als scrypt-Hash. `npm run dev` startet die API auf Port 3001 und die Oberfläche auf Port 5173. Die Anmeldung gilt nur für den offenen Browser-Tab.
 

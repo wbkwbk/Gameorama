@@ -34,8 +34,10 @@ import DeviceScreen from './screens/DeviceScreen.jsx'
 import MaintenanceEditScreen from './screens/MaintenanceEditScreen.jsx'
 import UsersScreen from './screens/UsersScreen.jsx'
 import GroupsScreen from './screens/GroupsScreen.jsx'
+import MaintenanceOverviewScreen from './screens/MaintenanceOverviewScreen.jsx'
+import CompletedMaintenancesScreen from './screens/CompletedMaintenancesScreen.jsx'
 
-function SuperMenu({ onUsers, onGroups }) {
+function AppMenu({ items }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -63,33 +65,26 @@ function SuperMenu({ onUsers, onGroups }) {
         aria-label="Menü"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-controls="super-menu"
+        aria-controls="app-menu"
         onClick={() => setOpen((value) => !value)}
       >
         <span aria-hidden="true">☰</span>
       </button>
       {open && (
-        <div className="menu-panel" id="super-menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false)
-              onUsers()
-            }}
-          >
-            Benutzerverwaltung
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false)
-              onGroups()
-            }}
-          >
-            Gruppen verwalten
-          </button>
+        <div className="menu-panel" id="app-menu" role="menu">
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                item.onSelect()
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -179,6 +174,19 @@ export default function App() {
     setConfirm(next)
   }
 
+  function completeMaintenance(maintenanceId) {
+    const result = markPerformed(db, maintenanceId, user, today)
+    if (!result.ok) {
+      setNotice({ tone: 'error', text: result.error })
+      return
+    }
+    commit(result.db)
+    setNotice({
+      tone: 'ok',
+      text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
+    })
+  }
+
   if (!user) {
     return <LoginScreen onLogin={login} />
   }
@@ -210,18 +218,42 @@ export default function App() {
             <strong>{user.name}</strong>
             <span className={`role role-${user.role}`}>{roleLabel(user.role)}</span>
           </div>
-          {isSuper && (
-            <SuperMenu
-              onUsers={() => {
-                setNotice(null)
-                setRoute({ name: 'users' })
-              }}
-              onGroups={() => {
-                setNotice(null)
-                setRoute({ name: 'groups' })
-              }}
-            />
-          )}
+          <AppMenu
+            items={[
+              {
+                label: 'Wartungsübersicht',
+                onSelect: () => {
+                  setNotice(null)
+                  setRoute({ name: 'maintenance-overview' })
+                },
+              },
+              {
+                label: 'Durchgeführte Wartungen',
+                onSelect: () => {
+                  setNotice(null)
+                  setRoute({ name: 'completed-maintenances' })
+                },
+              },
+              ...(isSuper
+                ? [
+                    {
+                      label: 'Benutzerverwaltung',
+                      onSelect: () => {
+                        setNotice(null)
+                        setRoute({ name: 'users' })
+                      },
+                    },
+                    {
+                      label: 'Gruppen verwalten',
+                      onSelect: () => {
+                        setNotice(null)
+                        setRoute({ name: 'groups' })
+                      },
+                    },
+                  ]
+                : []),
+            ]}
+          />
           <button type="button" className="btn ghost" onClick={logout}>
             Abmelden
           </button>
@@ -261,18 +293,7 @@ export default function App() {
               setNotice(null)
               setRoute({ name: 'overview' })
             }}
-            onDone={(maintenanceId) => {
-              const result = markPerformed(db, maintenanceId, user, today)
-              if (!result.ok) {
-                setNotice({ tone: 'error', text: result.error })
-                return
-              }
-              commit(result.db)
-              setNotice({
-                tone: 'ok',
-                text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
-              })
-            }}
+            onDone={completeMaintenance}
             onSaveDetail={(maintenanceId, detail) => {
               const result = updateMaintenanceDetail(db, maintenanceId, detail)
               if (!result.ok) {
@@ -399,6 +420,30 @@ export default function App() {
               })
               return null
             }}
+          />
+        ) : route.name === 'maintenance-overview' ? (
+          <MaintenanceOverviewScreen
+            db={db}
+            today={today}
+            token={user.token}
+            user={user}
+            notice={notice}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onOpenDevice={openDevice}
+            onDone={completeMaintenance}
+          />
+        ) : route.name === 'completed-maintenances' ? (
+          <CompletedMaintenancesScreen
+            db={db}
+            token={user.token}
+            onBack={() => {
+              setNotice(null)
+              setRoute({ name: 'overview' })
+            }}
+            onOpenDevice={openDevice}
           />
         ) : route.name === 'users' && isSuper ? (
           <UsersScreen

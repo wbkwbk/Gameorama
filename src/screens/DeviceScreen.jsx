@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Attachments from '../Attachments.jsx'
+import MovableStage from '../MovableStage.jsx'
 import ResizableCard from '../ResizableCard.jsx'
 import ResizableList from '../ResizableList.jsx'
 import { MIN_DETAIL_WIDTH } from '../panelSize.js'
@@ -354,8 +355,12 @@ export default function DeviceScreen({
 
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
-      <ResizableCard as="section" storageKey={`device-list:${device.id}`} label="Wartungsliste">
-        <h2>Wartungsliste</h2>
+      <MovableStage>
+      <ResizableCard as="section" movable storageKey={`device-list:${device.id}`} label="Wartungsliste">
+        <div className="section-head drag-surface">
+          <button type="button" className="drag-handle" aria-label="Wartungsliste verschieben" />
+          <h2>Wartungsliste</h2>
+        </div>
         {maintenances.length === 0 ? (
           <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
         ) : (
@@ -449,6 +454,7 @@ export default function DeviceScreen({
           </ResizableList>
         )}
       </ResizableCard>
+      </MovableStage>
 
       {isSuper && (
         <ResizableCard as="section" storageKey={`device-add:${device.id}`} label="Wartung hinzufügen">

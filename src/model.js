@@ -11,6 +11,13 @@ export function roleLabel(role) {
   return role === 'super' ? 'Super Benutzer' : 'Standard Benutzer'
 }
 
+export function performedActionLabel(user) {
+  const name = String(user?.name ?? '').trim()
+  const username = String(user?.username ?? '').trim()
+  const who = name || username
+  return who ? `Durchgeführt ${who}` : 'Durchgeführt'
+}
+
 export function formatISODate(date) {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
@@ -181,6 +188,130 @@ export function sortedDocumentation(maintenances, deviceId) {
       if (byTime !== 0) return byTime
       return String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
     })
+}
+
+function compareOverviewText(a, b) {
+  return String(a ?? '').localeCompare(String(b ?? ''), 'de', { sensitivity: 'accent' })
+}
+
+function compareOverviewDueDate(a, b) {
+  const left = String(a.dueDate ?? '').trim()
+  const right = String(b.dueDate ?? '').trim()
+  if (left && right && left !== right) return left < right ? -1 : 1
+  if (left && !right) return -1
+  if (!left && right) return 1
+  return 0
+}
+
+function maintenanceStatusLabel(status) {
+  if (status === 'erledigt') return 'erledigt'
+  if (status === 'dokumentation') return 'Dokumentation'
+  return 'offen'
+}
+
+function maintenanceRecordRows(db, include) {
+  const groups = new Map((db.groups || []).map((group) => [group.id, group]))
+  const devices = new Map((db.devices || []).map((device) => [device.id, device]))
+
+  function place(deviceId) {
+    const device = devices.get(deviceId)
+    const group = device ? groups.get(device.groupId) : null
+    return {
+      deviceId: device?.id || '',
+      groupName: group?.name || '',
+      deviceName: device?.name || '',
+      deviceNumber: device?.number ?? '',
+    }
+  }
+
+  return (db.maintenances || []).filter(include).map((item) => {
+    const status = item.status === 'erledigt' ? 'erledigt' : 'offen'
+    return {
+      ...place(item.deviceId),
+      id: `maintenance:${item.id}`,
+      maintenanceId: item.id,
+      kind: 'maintenance',
+      dueDate: item.dueDate || '',
+      intervalWeeks: item.intervalWeeks,
+      description: item.description || '',
+      detail: item.detail || '',
+      createdBy: item.createdBy || '',
+      status,
+      statusLabel: maintenanceStatusLabel(status),
+      performedBy: item.performedBy || '',
+      completedAt: item.completedAt || '',
+      createdAt: item.createdAt || '',
+    }
+  })
+}
+
+export function maintenanceOverviewRows(db) {
+  return maintenanceRecordRows(db, (item) => item.status !== 'erledigt')
+}
+
+export function completedMaintenanceRows(db) {
+  return maintenanceRecordRows(db, (item) => item.status === 'erledigt')
+}
+
+export function sortMaintenanceOverview(rows, mode = 'due') {
+  const selected = mode === 'group' ? 'group' : 'due'
+  return rows.slice().sort((a, b) => {
+    if (selected === 'group') {
+      const byGroup = compareOverviewText(a.groupName, b.groupName)
+      if (byGroup !== 0) return byGroup
+    }
+    const byDue = compareOverviewDueDate(a, b)
+    if (byDue !== 0) return byDue
+    if (selected !== 'group') {
+      const byGroup = compareOverviewText(a.groupName, b.groupName)
+      if (byGroup !== 0) return byGroup
+    }
+    const byDevice = compareOverviewText(a.deviceName, b.deviceName)
+    if (byDevice !== 0) return byDevice
+    const byDescription = compareOverviewText(a.description, b.description)
+    if (byDescription !== 0) return byDescription
+    return compareOverviewText(a.id, b.id)
+  })
+}
+
+function completedSortKey(row) {
+  const completed = String(row.completedAt ?? '').trim().slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(completed)) return completed
+  const due = String(row.dueDate ?? '').trim().slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(due)) return due
+  return ''
+}
+
+function compareCompletedDate(a, b) {
+  const left = completedSortKey(a)
+  const right = completedSortKey(b)
+  if (left && right && left !== right) return left < right ? 1 : -1
+  if (left && !right) return -1
+  if (!left && right) return 1
+  return 0
+}
+
+function compareCompletedIdentity(a, b) {
+  const byGroup = compareOverviewText(a.groupName, b.groupName)
+  if (byGroup !== 0) return byGroup
+  const byDevice = compareOverviewText(a.deviceName, b.deviceName)
+  if (byDevice !== 0) return byDevice
+  const byDescription = compareOverviewText(a.description, b.description)
+  if (byDescription !== 0) return byDescription
+  return compareOverviewText(a.id, b.id)
+}
+
+export function sortCompletedMaintenances(rows, mode = 'date') {
+  const selected = mode === 'group' ? 'group' : 'date'
+  return rows.slice().sort((a, b) => {
+    if (selected === 'group') {
+      const byGroup = compareOverviewText(a.groupName, b.groupName)
+      if (byGroup !== 0) return byGroup
+    }
+    const byDate = compareCompletedDate(a, b)
+    if (byDate !== 0) return byDate
+    return compareCompletedIdentity(a, b)
+  })
 }
 
 export function createSeedDb(now = new Date()) {
