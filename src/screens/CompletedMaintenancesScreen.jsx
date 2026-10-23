@@ -21,7 +21,7 @@ export default function CompletedMaintenancesScreen({ db, token, onBack, onOpenD
 
       <header className="board-head">
         <div>
-          <h1>Durchgeführte Wartungen</h1>
+          <h1>Durchgeführte Wartungen /Reparaturen</h1>
           <p className="muted">
             Erledigte Wartungen und Reparatur Aufgaben. Nach Datum: neueste Durchführung zuerst. Nur zum Ansehen.
           </p>

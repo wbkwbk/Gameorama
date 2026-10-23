@@ -27,7 +27,7 @@ export default function MaintenanceOverviewScreen({ db, today, token, user, noti
 
       <header className="board-head">
         <div>
-          <h1>Wartungsübersicht</h1>
+          <h1>Wartungs- Reparaturübersicht</h1>
           <p className="muted">Offene Wartungen und Reparatur Aufgaben, die noch zu erledigen sind.</p>
         </div>
         <div className="overview-tools">

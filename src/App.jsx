@@ -226,14 +226,14 @@ export default function App() {
           <AppMenu
             items={[
               {
-                label: 'Wartungsübersicht',
+                label: 'Wartungs- Reparaturübersicht',
                 onSelect: () => {
                   setNotice(null)
                   setRoute({ name: 'maintenance-overview' })
                 },
               },
               {
-                label: 'Durchgeführte Wartungen',
+                label: 'Durchgeführte Wartungen /Reparaturen',
                 onSelect: () => {
                   setNotice(null)
                   setRoute({ name: 'completed-maintenances' })
