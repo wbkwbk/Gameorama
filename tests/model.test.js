@@ -11,6 +11,8 @@ import {
   deleteGroup,
   deviceStatus,
   dueLevel,
+  filterMaintenanceRows,
+  leadingOpenTask,
   markPerformed,
   moveDevice,
   moveMaintenance,
@@ -539,6 +541,189 @@ test('copy maintenance is offen and does not copy performed-by', () => {
   assert.equal(still.deviceId, 'd-flipper')
   assert.equal(copied.db.maintenances.length, done.db.maintenances.length + 1)
   assert.equal(copyMaintenance(done.db, 'm-flipper-oil', 'd-dance', '   ').ok, false)
+})
+
+test('a repair is stored without an interval and completing it does not create a successor', () => {
+  const db = createSeedDb(new Date(2026, 9, 1))
+  const before = db.maintenances.length
+  const added = addMaintenance(db, {
+    deviceId: 'd-vr',
+    dueDate: '2026-10-20',
+    kind: 'reparatur',
+    description: 'Display tauschen',
+    detail: 'Neues Panel aus dem Lager.',
+    createdBy: 'Jonas Keller',
+  })
+  assert.equal(added.ok, true)
+  const created = added.db.maintenances.at(-1)
+  assert.equal(created.kind, 'reparatur')
+  assert.equal(created.intervalWeeks, null)
+  assert.equal(created.status, 'offen')
+  assert.equal(created.description, 'Display tauschen')
+  assert.equal(created.detail, 'Neues Panel aus dem Lager.')
+  assert.equal(added.db.maintenances.length, before + 1)
+
+  const ignoredInterval = addMaintenance(db, {
+    deviceId: 'd-vr',
+    dueDate: '2026-10-21',
+    kind: 'reparatur',
+    intervalWeeks: 8,
+    description: 'Joystick tauschen',
+    createdBy: 'Jonas Keller',
+  })
+  assert.equal(ignoredInterval.ok, true)
+  assert.equal(ignoredInterval.db.maintenances.at(-1).intervalWeeks, null)
+  assert.equal(ignoredInterval.db.maintenances.at(-1).kind, 'reparatur')
+
+  const needsInterval = addMaintenance(db, {
+    deviceId: 'd-vr',
+    dueDate: '2026-10-22',
+    kind: 'wartung',
+    description: 'Ohne Intervall',
+    createdBy: 'Jonas Keller',
+  })
+  assert.equal(needsInterval.ok, false)
+  assert.equal(needsInterval.error, 'Das Intervall muss mindestens 1 Woche sein.')
+  assert.equal(
+    maintenanceEditError({
+      kind: 'reparatur',
+      description: 'Display tauschen',
+      dueDate: '2026-10-20',
+      status: 'offen',
+    }),
+    null,
+  )
+  const edited = maintenanceEditFields({
+    kind: 'reparatur',
+    description: ' Display tauschen ',
+    dueDate: '2026-10-20',
+    intervalWeeks: 9,
+    detail: 'Panel links.',
+    createdBy: 'Jonas Keller',
+    status: 'offen',
+    performedBy: '',
+    completedAt: '',
+  })
+  assert.equal(edited.kind, 'reparatur')
+  assert.equal(edited.intervalWeeks, null)
+
+  const done = markPerformed(added.db, created.id, { name: 'Anna Berger' }, today)
+  assert.equal(done.ok, true)
+  assert.equal(done.db.maintenances.length, added.db.maintenances.length)
+  const finished = done.db.maintenances.find((item) => item.id === created.id)
+  assert.equal(finished.status, 'erledigt')
+  assert.equal(finished.performedBy, 'Anna Berger')
+  assert.equal(finished.completedAt, today)
+  assert.equal(finished.kind, 'reparatur')
+  assert.equal(finished.intervalWeeks, null)
+  assert.equal(finished.dueDate, '2026-10-20')
+  assert.equal(
+    done.db.maintenances.some((item) => item.id !== created.id && item.description === 'Display tauschen'),
+    false,
+  )
+  assert.equal(openMaintenances(done.db.maintenances, 'd-vr').some((item) => item.id === created.id), false)
+  assert.equal(
+    completedMaintenanceRows(done.db).some((row) => row.maintenanceId === created.id && row.taskKind === 'reparatur' && row.intervalWeeks == null),
+    true,
+  )
+  assert.equal(maintenanceOverviewRows(done.db).some((row) => row.maintenanceId === created.id), false)
+  assert.deepEqual(
+    sortedDocumentation(done.db.maintenances, 'd-vr').map((item) => item.id),
+    [created.id],
+  )
+
+  const copied = copyMaintenance(added.db, created.id, 'd-dance', 'Jonas Keller', '2026-10-03T08:00:00.000Z')
+  assert.equal(copied.ok, true)
+  const copy = copied.db.maintenances.find((item) => item.createdAt === '2026-10-03T08:00:00.000Z')
+  assert.equal(copy.kind, 'reparatur')
+  assert.equal(copy.intervalWeeks, null)
+  assert.equal(copy.status, 'offen')
+})
+
+test('kind and date sort places Wartung before Reparatur and then orders by date', () => {
+  const devices = [
+    { id: 'repair-only', name: 'Nur Reparatur', number: 1 },
+    { id: 'both', name: 'Beides', number: 2 },
+    { id: 'wartung-late', name: 'Späte Wartung', number: 3 },
+    { id: 'none', name: 'Leer', number: 4 },
+    { id: 'wartung-early', name: 'Frühe Wartung', number: 5 },
+  ]
+  const maintenances = [
+    { id: 'r1', deviceId: 'repair-only', kind: 'reparatur', dueDate: '2026-08-01', status: 'offen' },
+    { id: 'b-repair', deviceId: 'both', kind: 'reparatur', dueDate: '2026-07-01', status: 'offen' },
+    { id: 'b-wart', deviceId: 'both', kind: 'wartung', dueDate: '2026-12-01', status: 'offen' },
+    { id: 'w-late', deviceId: 'wartung-late', kind: 'wartung', dueDate: '2026-11-01', status: 'offen' },
+    { id: 'w-early', deviceId: 'wartung-early', kind: 'wartung', dueDate: '2026-10-01', status: 'offen' },
+    { id: 'w-early-repair', deviceId: 'wartung-early', kind: 'reparatur', dueDate: '2026-01-01', status: 'offen' },
+  ]
+  assert.equal(leadingOpenTask('both', maintenances).id, 'b-wart')
+  assert.equal(leadingOpenTask('wartung-early', maintenances).id, 'w-early')
+  assert.equal(leadingOpenTask('repair-only', maintenances).kind, 'reparatur')
+  assert.equal(leadingOpenTask('none', maintenances), null)
+  assert.deepEqual(
+    sortDevices(devices, maintenances, today, 'kind').map((device) => device.id),
+    ['wartung-early', 'wartung-late', 'both', 'repair-only', 'none'],
+  )
+
+  const list = [
+    { id: 'rep-early', kind: 'reparatur', dueDate: '2026-09-01', status: 'offen', deviceId: 'd' },
+    { id: 'wart-late', kind: 'wartung', dueDate: '2026-12-01', status: 'offen', deviceId: 'd' },
+    { id: 'wart-early', kind: 'wartung', dueDate: '2026-10-02', status: 'offen', deviceId: 'd' },
+    { id: 'rep-late', kind: 'reparatur', dueDate: '2026-11-01', status: 'offen', deviceId: 'd' },
+  ]
+  assert.deepEqual(
+    openMaintenances(list, 'd', { sort: 'kind' }).map((item) => item.id),
+    ['wart-early', 'wart-late', 'rep-early', 'rep-late'],
+  )
+  assert.deepEqual(
+    openMaintenances(list, 'd', { sort: 'date' }).map((item) => item.id),
+    ['rep-early', 'wart-early', 'rep-late', 'wart-late'],
+  )
+  assert.deepEqual(
+    openMaintenances(list, 'd').map((item) => item.id),
+    ['rep-early', 'wart-early', 'rep-late', 'wart-late'],
+  )
+  assert.deepEqual(
+    openMaintenances(list, 'd', { filter: 'reparatur' }).map((item) => item.id),
+    ['rep-early', 'rep-late'],
+  )
+  assert.deepEqual(
+    openMaintenances(list, 'd', { filter: 'wartung', sort: 'kind' }).map((item) => item.id),
+    ['wart-early', 'wart-late'],
+  )
+
+  const rows = [
+    { id: 'r-late', taskKind: 'reparatur', dueDate: '2026-11-01', groupName: 'Haus', deviceName: 'B', description: 'R2' },
+    { id: 'w-late', taskKind: 'wartung', dueDate: '2026-12-01', groupName: 'VR', deviceName: 'A', description: 'W2' },
+    { id: 'r-early', taskKind: 'reparatur', dueDate: '2026-08-01', groupName: 'Arcade', deviceName: 'C', description: 'R1' },
+    { id: 'w-early', taskKind: 'wartung', dueDate: '2026-09-01', groupName: 'Haus', deviceName: 'D', description: 'W1' },
+  ]
+  assert.deepEqual(
+    sortMaintenanceOverview(rows, 'kind').map((row) => row.id),
+    ['w-early', 'w-late', 'r-early', 'r-late'],
+  )
+  assert.deepEqual(
+    filterMaintenanceRows(rows, 'reparatur').map((row) => row.id),
+    ['r-late', 'r-early'],
+  )
+  assert.deepEqual(
+    sortMaintenanceOverview(filterMaintenanceRows(rows, 'wartung'), 'kind').map((row) => row.id),
+    ['w-early', 'w-late'],
+  )
+  const done = [
+    { id: 'c-r-new', taskKind: 'reparatur', completedAt: '2026-10-20', dueDate: '2026-01-01', groupName: 'Haus', deviceName: 'A', description: 'Neu' },
+    { id: 'c-w-old', taskKind: 'wartung', completedAt: '2026-09-01', dueDate: '2026-12-01', groupName: 'Arcade', deviceName: 'B', description: 'Alt' },
+    { id: 'c-w-new', taskKind: 'wartung', completedAt: '2026-10-15', dueDate: '2026-01-01', groupName: 'VR', deviceName: 'C', description: 'Wartung' },
+    { id: 'c-r-old', taskKind: 'reparatur', completedAt: '2026-08-01', dueDate: '2026-07-01', groupName: 'Haus', deviceName: 'D', description: 'Alt R' },
+  ]
+  assert.deepEqual(
+    sortCompletedMaintenances(done, 'kind').map((row) => row.id),
+    ['c-w-new', 'c-w-old', 'c-r-new', 'c-r-old'],
+  )
+  assert.deepEqual(
+    sortCompletedMaintenances(filterMaintenanceRows(done, 'reparatur'), 'date').map((row) => row.id),
+    ['c-r-new', 'c-r-old'],
+  )
 })
 
 test('today uses the local calendar date', () => {

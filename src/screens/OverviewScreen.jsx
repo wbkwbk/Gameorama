@@ -4,8 +4,11 @@ import {
   deviceStatus,
   formatDisplayDate,
   groupDeleteBlockReason,
+  leadingOpenTask,
   nextFreeDeviceNumber,
   sortDevices,
+  taskKind,
+  taskKindLabel,
 } from '../model.js'
 import MovableStage from '../MovableStage.jsx'
 import ResizableCard from '../ResizableCard.jsx'
@@ -21,7 +24,8 @@ function readDeviceSort() {
       value === 'name-desc' ||
       value === 'number-asc' ||
       value === 'number-desc' ||
-      value === 'due'
+      value === 'due' ||
+      value === 'kind'
     ) {
       return value
     }
@@ -98,7 +102,7 @@ export default function OverviewScreen({
         <div>
           <h1>Übersicht</h1>
           <p className="muted">
-            Geräte nach Gruppe. Die Farbe zeigt den nächsten Wartungstermin.
+            Geräte nach Gruppe. Die Farbe zeigt den dringendsten offenen Termin.
           </p>
         </div>
         <ul className="summary">
@@ -145,6 +149,7 @@ export default function OverviewScreen({
                     <option value="number-asc">Nummer aufsteigend</option>
                     <option value="number-desc">Nummer absteigend</option>
                     <option value="due">Wartungsdatum</option>
+                    <option value="kind">Wartung / Reparatur, dann Datum</option>
                   </select>
                 </label>
                 {isSuper && (
@@ -171,6 +176,14 @@ export default function OverviewScreen({
               >
                 {devices.map((device) => {
                   const status = deviceStatus(device.id, db.maintenances, today)
+                  const leading = sortMode === 'kind' ? leadingOpenTask(device.id, db.maintenances) : null
+                  const shown = leading
+                    ? {
+                        dueDate: leading.dueDate,
+                        description: leading.description,
+                        kind: taskKind(leading),
+                      }
+                    : status
                   return (
                     <li key={device.id} className={`device-row level-${status.level}`}>
                       <button type="button" className="device-open" onClick={() => onOpenDevice(device.id)}>
@@ -180,8 +193,11 @@ export default function OverviewScreen({
                           <span className="device-number">Nr. {device.number}</span>
                         </span>
                         <span className="device-meta">
-                          {status.dueDate
-                            ? `Fällig ${formatDisplayDate(status.dueDate)} · ${status.description}`
+                          {shown.kind ? (
+                            <span className={`task-kind ${shown.kind}`}>{taskKindLabel(shown.kind)}</span>
+                          ) : null}{' '}
+                          {shown.dueDate
+                            ? `Fällig ${formatDisplayDate(shown.dueDate)} · ${shown.description}`
                             : 'Noch keine Wartung angelegt'}
                         </span>
                       </button>

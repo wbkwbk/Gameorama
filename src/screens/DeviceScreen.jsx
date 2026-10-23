@@ -9,12 +9,21 @@ import {
   addWeeks,
   deviceStatus,
   formatDisplayDate,
+  isRepair,
   maintenanceStatus,
   deviceDeleteBlockReason,
   openMaintenances,
   sortedDocumentation,
+  taskKindLabel,
   todayISO,
 } from '../model.js'
+
+function detailCopy(item) {
+  if (isRepair(item)) {
+    return { label: 'Reparaturbeschrieb', empty: 'Kein Reparaturbeschrieb.' }
+  }
+  return { label: 'Wartungsbeschrieb', empty: 'Kein Wartungsbeschrieb.' }
+}
 
 function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocuments, storageKey }) {
   const [text, setText] = useState(item.detail || '')
@@ -29,17 +38,18 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
     setText(item.detail || '')
   }, [item.detail])
 
+  const copy = detailCopy(item)
   return (
     <ResizableCard
       className="maint-detail"
       storageKey={storageKey}
-      label={`Wartungsbeschrieb ${item.description}`}
+      label={`${copy.label} ${item.description}`}
       minReadable={MIN_DETAIL_WIDTH}
     >
       {isSuper ? (
         <div className="detail-editor">
           <textarea
-            aria-label={`Wartungsbeschrieb für ${item.description}`}
+            aria-label={`${copy.label} für ${item.description}`}
             value={text}
             rows={4}
             onChange={(event) => {
@@ -60,7 +70,7 @@ function MaintenanceDetail({ item, isSuper, documents, token, onSave, onDocument
           {saved && <p className="form-ok">Gespeichert.</p>}
         </div>
       ) : (
-        <p className="detail-read">{item.detail?.trim() ? item.detail : 'Kein Wartungsbeschrieb.'}</p>
+        <p className="detail-read">{item.detail?.trim() ? item.detail : copy.empty}</p>
       )}
       <Attachments
         ownerId={item.id}
@@ -104,6 +114,7 @@ function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
   }, [devices])
 
   if (devices.length === 0) return null
+  const noun = isRepair(item) ? 'Reparatur Aufgabe' : 'Wartung'
 
   return (
     <div className="maint-transfer">
@@ -137,7 +148,7 @@ function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
         </form>
       ) : (
         <button type="button" className="btn tiny secondary" onClick={() => setMoveOpen(true)}>
-          Wartung einem anderen Gerät zuordnen
+          {noun} einem anderen Gerät zuordnen
         </button>
       )}
       {copyOpen ? (
@@ -172,7 +183,7 @@ function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
         </form>
       ) : (
         <button type="button" className="btn tiny secondary" onClick={() => setCopyOpen(true)}>
-          Wartung kopieren
+          {noun} kopieren
         </button>
       )}
     </div>
@@ -180,14 +191,15 @@ function MaintenanceTransfer({ item, devices, groups, onMove, onCopy }) {
 }
 
 function MaintenanceDetailRead({ item, documents, token, storageKey }) {
+  const copy = detailCopy(item)
   return (
     <ResizableCard
       className="maint-detail"
       storageKey={storageKey}
-      label={`Wartungsbeschrieb ${item.description}`}
+      label={`${copy.label} ${item.description}`}
       minReadable={MIN_DETAIL_WIDTH}
     >
-      <p className="detail-read">{item.detail?.trim() ? item.detail : 'Kein Wartungsbeschrieb.'}</p>
+      <p className="detail-read">{item.detail?.trim() ? item.detail : copy.empty}</p>
       <Attachments
         ownerId={item.id}
         documents={documents}
@@ -222,11 +234,14 @@ export default function DeviceScreen({
   const [saving, setSaving] = useState(false)
   const pendingKey = useRef(1)
   const [form, setForm] = useState({
+    kind: 'wartung',
     dueDate: addWeeks(todayISO(), 4),
     intervalWeeks: 4,
     description: '',
     detail: '',
   })
+  const [listFilter, setListFilter] = useState('alle')
+  const [listSort, setListSort] = useState('date')
   const [formError, setFormError] = useState(null)
 
   useEffect(() => {
@@ -273,9 +288,11 @@ export default function DeviceScreen({
   }
 
   const status = deviceStatus(device.id, db.maintenances, today)
-  const maintenances = openMaintenances(db.maintenances, device.id)
+  const openItems = openMaintenances(db.maintenances, device.id)
+  const maintenances = openMaintenances(db.maintenances, device.id, { filter: listFilter, sort: listSort })
   const otherDevices = db.devices.filter((item) => item.id !== device.id)
   const documentation = sortedDocumentation(db.maintenances, device.id)
+  const repairForm = form.kind === 'reparatur'
 
   async function submitMaintenance(event) {
     event.preventDefault()
@@ -292,8 +309,9 @@ export default function DeviceScreen({
     setFormError(null)
     try {
       const outcome = await onAddMaintenance({
+        kind: form.kind,
         dueDate: form.dueDate,
-        intervalWeeks: Number(form.intervalWeeks),
+        intervalWeeks: form.kind === 'reparatur' ? null : Number(form.intervalWeeks),
         description: form.description,
         detail: form.detail,
       })
@@ -302,7 +320,11 @@ export default function DeviceScreen({
         return
       }
       if (!outcome?.id) {
-        setFormError('Wartung konnte nicht gespeichert werden.')
+        setFormError(
+          form.kind === 'reparatur'
+            ? 'Reparatur Aufgabe konnte nicht gespeichert werden.'
+            : 'Wartung konnte nicht gespeichert werden.',
+        )
         return
       }
       const failed = []
@@ -317,7 +339,13 @@ export default function DeviceScreen({
       }
       await reloadDocuments()
       setPendingDocs(failed)
-      setForm({ dueDate: addWeeks(todayISO(), 4), intervalWeeks: 4, description: '', detail: '' })
+      setForm((current) => ({
+        kind: current.kind,
+        dueDate: addWeeks(todayISO(), 4),
+        intervalWeeks: 4,
+        description: '',
+        detail: '',
+      }))
       if (uploadError) setFormError(uploadError)
     } finally {
       setSaving(false)
@@ -357,17 +385,46 @@ export default function DeviceScreen({
 
       <MovableStage>
       <ResizableCard as="section" movable storageKey={`device-list:${device.id}`} label="Wartungsliste">
-        <div className="section-head drag-surface">
-          <button type="button" className="drag-handle" aria-label="Wartungsliste verschieben" />
-          <h2>Wartungsliste</h2>
-        </div>
-        {maintenances.length === 0 ? (
+        <header className="group-head">
+          <div className="section-head drag-surface">
+            <button type="button" className="drag-handle" aria-label="Wartungsliste verschieben" />
+            <h2>Wartungsliste</h2>
+          </div>
+          <div className="list-tools">
+            <label className="sort-field">
+              Anzeige
+              <select
+                aria-label="Anzeige der Wartungsliste"
+                value={listFilter}
+                onChange={(event) => setListFilter(event.target.value)}
+              >
+                <option value="alle">Alle</option>
+                <option value="wartung">nur Wartung</option>
+                <option value="reparatur">nur Reparatur Aufgabe</option>
+              </select>
+            </label>
+            <label className="sort-field">
+              Sortierung
+              <select
+                aria-label="Sortierung der Wartungsliste"
+                value={listSort}
+                onChange={(event) => setListSort(event.target.value)}
+              >
+                <option value="date">Nach Datum</option>
+                <option value="kind">Nach Art, dann Datum</option>
+              </select>
+            </label>
+          </div>
+        </header>
+        {openItems.length === 0 ? (
           <p className="empty">Für dieses Gerät ist noch keine Wartung angelegt.</p>
+        ) : maintenances.length === 0 ? (
+          <p className="empty">Keine Einträge für diese Auswahl.</p>
         ) : (
           <ResizableList
             as="div"
             className="table-wrap maint-list-scroll"
-            itemKey={`${device.id}:${maintenances.map((item) => item.id).join(',')}`}
+            itemKey={`${device.id}:${listFilter}:${listSort}:${maintenances.map((item) => item.id).join(',')}`}
             storageKey={`device-list:${device.id}`}
             label="Wartungsliste"
             rowSelector="tbody tr"
@@ -377,6 +434,7 @@ export default function DeviceScreen({
             <table className="maint-table">
               <thead>
                 <tr>
+                  <th>Art</th>
                   <th>Fällig am</th>
                   <th>Intervall in Wochen</th>
                   <th>Wartungsbeschreibung</th>
@@ -392,8 +450,13 @@ export default function DeviceScreen({
                   const itemStatus = maintenanceStatus(item, today)
                   return (
                     <tr key={item.id} className={`level-${itemStatus.level}`}>
+                      <th scope="row" className="task-kind-cell">
+                        <span className={`task-kind ${isRepair(item) ? 'reparatur' : 'wartung'}`}>
+                          {taskKindLabel(item)}
+                        </span>
+                      </th>
                       <td>{formatDisplayDate(item.dueDate)}</td>
-                      <td>{item.intervalWeeks}</td>
+                      <td>{isRepair(item) ? '' : item.intervalWeeks}</td>
                       <td>{item.description}</td>
                       <td>
                         <MaintenanceDetail
@@ -457,9 +520,24 @@ export default function DeviceScreen({
       </MovableStage>
 
       {isSuper && (
-        <ResizableCard as="section" storageKey={`device-add:${device.id}`} label="Wartung hinzufügen">
-          <h2>Wartung hinzufügen / löschen</h2>
+        <ResizableCard
+          as="section"
+          storageKey={`device-add:${device.id}`}
+          label={repairForm ? 'Reparatur Aufgabe hinzufügen' : 'Wartung hinzufügen'}
+        >
+          <h2>{repairForm ? 'Reparatur Aufgabe hinzufügen / löschen' : 'Wartung hinzufügen / löschen'}</h2>
           <form className="maintenance-form" onSubmit={submitMaintenance}>
+            <label>
+              Art
+              <select
+                aria-label="Art"
+                value={form.kind}
+                onChange={(event) => setForm((current) => ({ ...current, kind: event.target.value }))}
+              >
+                <option value="wartung">Wartung</option>
+                <option value="reparatur">Reparatur Aufgabe</option>
+              </select>
+            </label>
             <label>
               Fällig am
               <input
@@ -469,39 +547,43 @@ export default function DeviceScreen({
                 required
               />
             </label>
-            <label>
-              Intervall in Wochen
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={form.intervalWeeks}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, intervalWeeks: event.target.value }))
-                }
-                required
-              />
-            </label>
+            {repairForm ? null : (
+              <label>
+                Intervall in Wochen
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={form.intervalWeeks}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, intervalWeeks: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+            )}
             <label className="grow">
-              Wartungsbeschreibung
+              {repairForm ? 'Reparatur Beschreibung' : 'Wartungsbeschreibung'}
               <input
                 value={form.description}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, description: event.target.value }))
                 }
-                placeholder="Was ist zu tun?"
+                placeholder={repairForm ? 'Was ist zu reparieren?' : 'Was ist zu tun?'}
                 required
               />
             </label>
             <label className="wide">
-              Wartungsbeschrieb
+              {repairForm ? 'Reparaturbeschrieb' : 'Wartungsbeschrieb'}
               <textarea
                 value={form.detail}
                 rows={4}
                 onChange={(event) =>
                   setForm((current) => ({ ...current, detail: event.target.value }))
                 }
-                placeholder="Ausführlicher Beschrieb zur Wartung"
+                placeholder={
+                  repairForm ? 'Ausführlicher Beschrieb zur Reparatur' : 'Ausführlicher Beschrieb zur Wartung'
+                }
               />
             </label>
             <div className="wide attachments pending-docs">
@@ -533,7 +615,7 @@ export default function DeviceScreen({
               </label>
             </div>
             <button type="submit" className="btn secondary" disabled={saving}>
-              {saving ? 'Wird gespeichert …' : 'Wartung hinzufügen'}
+              {saving ? 'Wird gespeichert …' : repairForm ? 'Reparatur hinzufügen' : 'Wartung hinzufügen'}
             </button>
             {formError && <p className="form-error">{formError}</p>}
           </form>
@@ -551,6 +633,7 @@ export default function DeviceScreen({
             <table className="maint-table">
               <thead>
                 <tr>
+                  <th>Art</th>
                   <th>Fällig am</th>
                   <th>Intervall in Wochen</th>
                   <th>Wartungsbeschreibung</th>
@@ -565,8 +648,13 @@ export default function DeviceScreen({
               <tbody>
                 {documentation.map((item) => (
                   <tr key={item.id}>
+                    <th scope="row" className="task-kind-cell">
+                      <span className={`task-kind ${isRepair(item) ? 'reparatur' : 'wartung'}`}>
+                        {taskKindLabel(item)}
+                      </span>
+                    </th>
                     <td>{formatDisplayDate(item.dueDate)}</td>
-                    <td>{item.intervalWeeks}</td>
+                    <td>{isRepair(item) ? '' : item.intervalWeeks}</td>
                     <td>{item.description}</td>
                     <td>
                       <MaintenanceDetailRead

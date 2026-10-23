@@ -484,6 +484,7 @@ main {
 }
 .device-title h1 .device-number { margin-left: 0; }
 .device-meta { grid-column: 2; color: var(--muted); }
+.device-meta .task-kind { margin-right: 0.45rem; }
 .pill {
   justify-self: start;
   color: white;
@@ -567,6 +568,32 @@ tr.level-ok td { background: #f7fbf8; }
 }
 .done-btn small { font-weight: 400; opacity: 0.9; }
 .maint-table { min-width: 68rem; }
+.maint-table tbody th.task-kind-cell {
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.task-kind {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.55rem;
+  background: #ece7dc;
+  color: var(--navy);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.task-kind.reparatur { background: #e4eef8; color: var(--navy-2); }
+.list-tools, .overview-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  align-items: end;
+  justify-content: flex-end;
+}
+.list-tools .sort-field { min-width: 12rem; }
 .maint-detail {
   --card-pad-top: 0px;
   --card-pad-x: 0px;
