@@ -40,6 +40,69 @@ Eine schon vorhandene Datei `data\gameorama.sqlite` bleibt beim Installieren unv
 
 Nach der Bereitstellung `neue-datenbank.cmd` ausführen. Das legt `data/gameorama.sqlite` mit den Benutzern `superuser` und `user` an. Ist diese Datei schon vorhanden, bleibt sie unverändert. `neue-datenbank.cmd --force` ersetzt die Datenbankdatei; `data\uploads` bleibt erhalten.
 
+## Start unter Unix mit systemd
+
+Für den Dauerbetrieb unter Unix dient eine systemd-Unit. Nötig ist Node.js 22 oder neuer. Im Installationsverzeichnis zuerst `npm run build` ausführen, damit `dist/index.html` existiert. Gestartet wird `node server/index.js`, derselbe Prozess wie `npm start`. Er hört auf `127.0.0.1` und den Port aus `PORT`, sonst `3001`.
+
+Beispiel für `/etc/systemd/system/gameorama.service`. Der Installationspfad im Beispiel ist `/opt/gameorama`, Node im Beispiel `/usr/bin/node` (Node.js 22 oder neuer). Die Befehle laufen als root:
+
+```ini
+[Unit]
+Description=Gameorama Wartungstool
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/gameorama
+Environment=PORT=3001
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl daemon-reload
+systemctl enable --now gameorama
+```
+
+```bash
+systemctl start gameorama
+systemctl stop gameorama
+systemctl restart gameorama
+systemctl status gameorama
+```
+
+## Datenbank leeren
+
+Zuerst den Dienst stoppen, damit SQLite nicht gesperrt ist. Dann im Installationsverzeichnis `node scripts/neue-datenbank.mjs --force` ausführen und den Dienst wieder starten. Im Beispiel liegt die Installation unter `/opt/gameorama`:
+
+```bash
+systemctl stop gameorama
+cd /opt/gameorama
+node scripts/neue-datenbank.mjs --force
+systemctl start gameorama
+```
+
+`--force` ersetzt `data/gameorama.sqlite` einschließlich der Geräte, der Wartungen und der Benutzer, und entfernt vorhandene Begleitdateien `-wal`, `-shm` und `-journal`. `data/uploads` wird nicht gelöscht. Ohne `--force` bleibt eine vorhandene Datenbank unverändert. Das Skript legt die Datei danach neu an.
+
+## Erste Benutzer in der Shell anlegen
+
+Im Installationsverzeichnis:
+
+```bash
+node scripts/neue-datenbank.mjs
+```
+
+Das Skript legt diese Benutzer an:
+
+- `superuser`, Rolle `super` (Super Benutzer), Passwort `superuser`
+- `user`, Rolle `standard` (Standard Benutzer), Passwort `user`
+
+Ist `data/gameorama.sqlite` schon vorhanden, bleibt sie ohne `--force` unverändert.
+
+`npm start` legt auf einer neuen, leeren Datenbank die Beispielgruppen, Geräte und Wartungen an und, solange noch kein Benutzer existiert, zusätzlich `anna` (Rolle `standard`, Passwort `wartung`) und `admin` (Rolle `super`, Passwort `super`). `node scripts/neue-datenbank.mjs` schreibt dieselben Beispieldaten, überspringt `anna` und `admin` und speichert nur `superuser` und `user`.
+
 ## Rollen
 
 Benutzer  Standard Benutzer: Wartungen als durchgeführt markieren |
