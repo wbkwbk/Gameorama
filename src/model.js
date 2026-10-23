@@ -235,6 +235,16 @@ export function leadingOpenTask(deviceId, maintenances) {
   return sortOpenMaintenances(open, 'kind')[0] ?? null
 }
 
+export function deviceOverviewTasks(deviceId, maintenances, mode = 'date') {
+  const sort = mode === 'kind' ? 'kind' : 'date'
+  return openMaintenances(maintenances, deviceId, { sort }).map((item) => ({
+    id: item.id,
+    kind: taskKind(item),
+    dueDate: item.dueDate,
+    description: item.description || '',
+  }))
+}
+
 export function openMaintenances(maintenances, deviceId, options = {}) {
   const filter = options.filter ?? 'alle'
   const sort = options.sort ?? 'date'

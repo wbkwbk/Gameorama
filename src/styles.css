@@ -483,7 +483,15 @@ main {
   gap: 0.55rem;
 }
 .device-title h1 .device-number { margin-left: 0; }
-.device-meta { grid-column: 2; color: var(--muted); }
+.device-meta {
+  grid-column: 2;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.device-task { display: block; min-width: 0; }
 .device-meta .task-kind { margin-right: 0.45rem; }
 .pill {
   justify-self: start;

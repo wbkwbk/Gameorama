@@ -9,6 +9,7 @@ import {
   createSeedDb,
   deleteDevice,
   deleteGroup,
+  deviceOverviewTasks,
   deviceStatus,
   dueLevel,
   filterMaintenanceRows,
@@ -638,6 +639,62 @@ test('a repair is stored without an interval and completing it does not create a
   assert.equal(copy.kind, 'reparatur')
   assert.equal(copy.intervalWeeks, null)
   assert.equal(copy.status, 'offen')
+})
+
+test('overview model keeps every open repair on its device', () => {
+  const devices = [
+    { id: 'both', name: 'Beides', number: 2 },
+    { id: 'repair-only', name: 'Nur Reparatur', number: 1 },
+    { id: 'wartung-only', name: 'Nur Wartung', number: 3 },
+  ]
+  const maintenances = [
+    { id: 'b-wart', deviceId: 'both', kind: 'wartung', dueDate: '2026-12-01', status: 'offen', description: 'Öl' },
+    { id: 'b-repair', deviceId: 'both', kind: 'reparatur', dueDate: '2026-07-01', status: 'offen', description: 'Display' },
+    { id: 'b-done', deviceId: 'both', kind: 'reparatur', dueDate: '2026-01-01', status: 'erledigt', description: 'Alt' },
+    { id: 'r-only', deviceId: 'repair-only', kind: 'reparatur', dueDate: '2026-10-03', status: 'offen', description: 'Seil' },
+    { id: 'w-only', deviceId: 'wartung-only', kind: 'wartung', dueDate: '2026-09-01', status: 'offen', description: 'Filter' },
+    { id: 'w-later-repair', deviceId: 'wartung-only', kind: 'reparatur', dueDate: '2026-11-15', status: 'offen', description: 'Scharnier' },
+  ]
+
+  const both = deviceOverviewTasks('both', maintenances)
+  assert.deepEqual(
+    both.map((task) => task.id),
+    ['b-repair', 'b-wart'],
+  )
+  assert.equal(both.some((task) => task.id === 'b-repair' && task.kind === 'reparatur' && task.dueDate === '2026-07-01'), true)
+  assert.equal(both.some((task) => task.id === 'b-wart' && task.kind === 'wartung' && task.dueDate === '2026-12-01'), true)
+  assert.equal(both.some((task) => task.id === 'b-done'), false)
+
+  const repairOnly = deviceOverviewTasks('repair-only', maintenances)
+  assert.equal(repairOnly.length, 1)
+  assert.equal(repairOnly[0].id, 'r-only')
+  assert.equal(repairOnly[0].kind, 'reparatur')
+  assert.equal(repairOnly[0].dueDate, '2026-10-03')
+
+  const byKind = deviceOverviewTasks('wartung-only', maintenances, 'kind')
+  assert.deepEqual(
+    byKind.map((task) => [task.id, task.kind]),
+    [
+      ['w-only', 'wartung'],
+      ['w-later-repair', 'reparatur'],
+    ],
+  )
+  assert.equal(byKind.some((task) => task.kind === 'reparatur'), true)
+
+  const repairFirst = deviceStatus('both', maintenances, today)
+  assert.equal(repairFirst.level, 'overdue')
+  assert.equal(repairFirst.dueDate, '2026-07-01')
+  assert.equal(repairFirst.kind, 'reparatur')
+  const wartungFirst = deviceStatus('wartung-only', maintenances, today)
+  assert.equal(wartungFirst.level, 'overdue')
+  assert.equal(wartungFirst.dueDate, '2026-09-01')
+  assert.equal(wartungFirst.kind, 'wartung')
+  assert.equal(deviceStatus('repair-only', maintenances, today).level, 'soon')
+
+  assert.deepEqual(
+    sortDevices(devices, maintenances, today, 'kind').map((device) => device.id),
+    ['wartung-only', 'both', 'repair-only'],
+  )
 })
 
 test('kind and date sort places Wartung before Reparatur and then orders by date', () => {

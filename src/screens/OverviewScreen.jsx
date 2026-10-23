@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import {
   deviceDeleteBlockReason,
+  deviceOverviewTasks,
   deviceStatus,
   formatDisplayDate,
   groupDeleteBlockReason,
-  leadingOpenTask,
   nextFreeDeviceNumber,
   sortDevices,
-  taskKind,
   taskKindLabel,
 } from '../model.js'
 import MovableStage from '../MovableStage.jsx'
@@ -176,14 +175,7 @@ export default function OverviewScreen({
               >
                 {devices.map((device) => {
                   const status = deviceStatus(device.id, db.maintenances, today)
-                  const leading = sortMode === 'kind' ? leadingOpenTask(device.id, db.maintenances) : null
-                  const shown = leading
-                    ? {
-                        dueDate: leading.dueDate,
-                        description: leading.description,
-                        kind: taskKind(leading),
-                      }
-                    : status
+                  const tasks = deviceOverviewTasks(device.id, db.maintenances, sortMode)
                   return (
                     <li key={device.id} className={`device-row level-${status.level}`}>
                       <button type="button" className="device-open" onClick={() => onOpenDevice(device.id)}>
@@ -193,12 +185,14 @@ export default function OverviewScreen({
                           <span className="device-number">Nr. {device.number}</span>
                         </span>
                         <span className="device-meta">
-                          {shown.kind ? (
-                            <span className={`task-kind ${shown.kind}`}>{taskKindLabel(shown.kind)}</span>
-                          ) : null}{' '}
-                          {shown.dueDate
-                            ? `Fällig ${formatDisplayDate(shown.dueDate)} · ${shown.description}`
-                            : 'Noch keine Wartung angelegt'}
+                          {tasks.length === 0
+                            ? 'Noch keine Wartung angelegt'
+                            : tasks.map((task) => (
+                                <span key={task.id} className="device-task">
+                                  <span className={`task-kind ${task.kind}`}>{taskKindLabel(task.kind)}</span>
+                                  {`Fällig ${formatDisplayDate(task.dueDate)}${task.description ? ` · ${task.description}` : ''}`}
+                                </span>
+                              ))}
                         </span>
                       </button>
                       {isSuper && (
