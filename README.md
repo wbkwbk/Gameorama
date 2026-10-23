@@ -44,7 +44,7 @@ Nach der Bereitstellung `neue-datenbank.cmd` ausführen. Das legt `data/gameoram
 
 Für den Dauerbetrieb unter Unix dient eine systemd-Unit. Nötig ist Node.js 22 oder neuer. Im Installationsverzeichnis zuerst `npm run build` ausführen, damit `dist/index.html` existiert. Gestartet wird `node server/index.js`, derselbe Prozess wie `npm start`. Er hört auf `127.0.0.1` und den Port aus `PORT`, sonst `3001`.
 
-Beispiel für `/etc/systemd/system/gameorama.service`. Der Installationspfad im Beispiel ist `/opt/gameorama`, Node im Beispiel `/usr/bin/node` (Node.js 22 oder neuer). Die Befehle laufen als root:
+Beispiel für `/etc/systemd/system/gameorama.service`. Der Block mit `[Unit]`, `[Service]` und `[Install]` ist der Inhalt dieser Datei, keine Folge von Shell-Befehlen. Der Installationspfad im Beispiel ist `/opt/gameorama`, Node im Beispiel `/usr/bin/node` (Node.js 22 oder neuer). Die Befehle laufen als root:
 
 ```ini
 [Unit]
@@ -59,6 +59,35 @@ Restart=always
 
 [Install]
 WantedBy=multi-user.target
+```
+
+Zuerst prüfen, ob die Unit schon existiert:
+
+```bash
+systemctl cat gameorama
+```
+
+Gibt `systemctl cat` die Unit aus, muss die Datei nicht erneut angelegt werden. Zum Ansehen genügt `systemctl status gameorama`.
+
+Fehlt der Dienst, die Datei einmal anlegen und den ganzen Block auf einmal einfügen:
+
+```bash
+cat >/etc/systemd/system/gameorama.service <<'EOF'
+[Unit]
+Description=Gameorama Wartungstool
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/gameorama
+Environment=PORT=3001
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now gameorama
 ```
 
 ```bash
