@@ -1,4 +1,4 @@
-import { dueLevel, formatDisplayDate } from '../model.js'
+import { dueLevel, formatDisplayDate, isRepair, taskKindLabel } from '../model.js'
 import DocumentLinks from '../DocumentLinks.jsx'
 
 function displayDate(value) {
@@ -24,6 +24,7 @@ export default function MaintenanceRecordTable({
             <th>Gerätegruppe</th>
             <th>Gerätename</th>
             <th>Gerätenummer</th>
+            <th>Art</th>
             <th>Fällig am</th>
             <th>Intervall in Wochen</th>
             <th>Wartungsbeschreibung</th>
@@ -53,8 +54,13 @@ export default function MaintenanceRecordTable({
                   )}
                 </td>
                 <td>{row.deviceNumber}</td>
+                <td>
+                  <span className={`task-kind ${isRepair(row) ? 'reparatur' : 'wartung'}`}>
+                    {taskKindLabel(row)}
+                  </span>
+                </td>
                 <td>{displayDate(row.dueDate)}</td>
-                <td>{row.intervalWeeks}</td>
+                <td>{row.intervalWeeks == null || row.intervalWeeks === '' ? '' : row.intervalWeeks}</td>
                 <td>{row.description}</td>
                 <td className="detail-cell">{row.detail}</td>
                 <td>{row.createdBy}</td>

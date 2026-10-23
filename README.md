@@ -45,7 +45,7 @@ Nach der Bereitstellung `neue-datenbank.cmd` ausführen. Das legt `data/gameoram
 Benutzer  Standard Benutzer: Wartungen als durchgeführt markieren |
 Super Benutzer: Geräte, Gruppen, Wartungen und Benutzer verwalten |
 
-Nach «Durchgeführt» wird die Wartung auf erledigt gesetzt. «Durchgeführt durch» enthält den angemeldeten Benutzer, das Fälligkeitsdatum bleibt stehen. Der Dokumentationsbereich listet die Wartungen des Geräts, die neueste zuerst. Ältere Dokumentationseinträge bleiben lesbar.
+Nach «Durchgeführt» wird die Aufgabe auf erledigt gesetzt. «Durchgeführt durch» enthält den angemeldeten Benutzer, das Fälligkeitsdatum bleibt stehen. Eine Wartung legt danach die nächste offene Wartung an: die neue Fälligkeit ist das bisherige Fälligkeitsdatum plus das Intervall in Wochen. Eine Reparatur Aufgabe ist einmalig, hat kein Intervall und erzeugt keine neue offene Aufgabe. Erledigte Wartungen und Reparatur Aufgaben stehen unter Durchgeführte Wartungen. Der Dokumentationsbereich am Gerät listet die erledigten Einträge, die neueste zuerst. Ältere Dokumentationseinträge bleiben lesbar.
 
 Das Menü in der Kopfzeile zeigt allen Benutzern die Wartungsübersicht. Super Benutzer öffnen dort zusätzlich die Benutzerverwaltung. Dort lassen sich Benutzer anlegen, in allen Feldern ändern und löschen. Ein leeres Passwortfeld beim Bearbeiten behält das bisherige Passwort. Der letzte Super Benutzer kann nicht gelöscht oder zum Standard Benutzer gemacht werden.
 

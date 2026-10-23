@@ -11,6 +11,7 @@ import {
   maintenanceEditError,
   maintenanceEditFields,
   prepareDeviceNumbers,
+  resolveTaskKind,
 } from '../src/model.js'
 import { hashPassword, verifyPassword } from './passwords.js'
 
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS maintenances (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
   due_date TEXT NOT NULL,
-  interval_weeks INTEGER NOT NULL,
+  interval_weeks INTEGER,
   description TEXT NOT NULL,
   detail TEXT NOT NULL DEFAULT '',
   created_by TEXT NOT NULL DEFAULT '',
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS maintenances (
   performed_by TEXT NOT NULL DEFAULT '',
   completed_at TEXT,
   created_at TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'wartung',
   FOREIGN KEY (device_id) REFERENCES devices(id)
 );
 CREATE TABLE IF NOT EXISTS documents (
@@ -335,6 +337,79 @@ function migrate(database) {
   database.prepare(`UPDATE maintenances SET status = 'offen' WHERE status IS NULL OR status = ''`).run()
   database.prepare(`UPDATE maintenances SET performed_by = '' WHERE performed_by IS NULL`).run()
   database.prepare(`UPDATE maintenances SET created_by = '' WHERE created_by IS NULL`).run()
+  ensureColumn(database, 'maintenances', 'kind', "TEXT NOT NULL DEFAULT 'wartung'")
+  database
+    .prepare(
+      `UPDATE maintenances
+       SET kind = 'wartung'
+       WHERE kind IS NULL OR kind = '' OR kind NOT IN ('wartung', 'reparatur')`,
+    )
+    .run()
+  relaxMaintenanceInterval(database)
+}
+
+function relaxMaintenanceInterval(database) {
+  const columns = database.prepare('PRAGMA table_info(maintenances)').all()
+  const interval = columns.find((column) => column.name === 'interval_weeks')
+  if (!interval || Number(interval.notnull) === 0) return
+
+  database.exec('PRAGMA foreign_keys = OFF')
+  try {
+    database.exec('BEGIN IMMEDIATE')
+    try {
+      database.exec(`
+        CREATE TABLE maintenances_next (
+          id TEXT PRIMARY KEY,
+          device_id TEXT NOT NULL,
+          due_date TEXT NOT NULL,
+          interval_weeks INTEGER,
+          description TEXT NOT NULL,
+          detail TEXT NOT NULL DEFAULT '',
+          created_by TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'offen',
+          performed_by TEXT NOT NULL DEFAULT '',
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT '',
+          kind TEXT NOT NULL DEFAULT 'wartung',
+          FOREIGN KEY (device_id) REFERENCES devices(id)
+        );
+        INSERT INTO maintenances_next (
+          id, device_id, due_date, interval_weeks, description, detail,
+          created_by, status, performed_by, completed_at, created_at, kind
+        )
+        SELECT
+          id,
+          device_id,
+          due_date,
+          interval_weeks,
+          description,
+          COALESCE(detail, ''),
+          COALESCE(created_by, ''),
+          CASE WHEN status IS NULL OR status = '' THEN 'offen' ELSE status END,
+          COALESCE(performed_by, ''),
+          completed_at,
+          COALESCE(created_at, ''),
+          CASE
+            WHEN kind IS NULL OR kind = '' OR kind NOT IN ('wartung', 'reparatur') THEN 'wartung'
+            ELSE kind
+          END
+        FROM maintenances;
+        DROP TABLE maintenances;
+        ALTER TABLE maintenances_next RENAME TO maintenances;
+      `)
+      database.exec('COMMIT')
+    } catch (error) {
+      database.exec('ROLLBACK')
+      throw error
+    }
+  } finally {
+    database.exec('PRAGMA foreign_keys = ON')
+  }
+}
+
+function intervalFor(kind, value) {
+  if (kind === 'reparatur') return null
+  return Number(value)
 }
 
 export function openDatabase(filePath, { seedDemoUsers = true } = {}) {
@@ -553,20 +628,25 @@ export function readState(database) {
       `SELECT id, device_id AS deviceId, due_date AS dueDate,
               interval_weeks AS intervalWeeks, description, detail,
               created_by AS createdBy, status, performed_by AS performedBy,
-              completed_at AS completedAt, created_at AS createdAt
+              completed_at AS completedAt, created_at AS createdAt,
+              kind
        FROM maintenances ORDER BY due_date, id`,
     )
     .all()
-    .map((item) => ({
-      ...item,
-      intervalWeeks: Number(item.intervalWeeks),
-      detail: item.detail || '',
-      createdBy: item.createdBy || '',
-      status: item.status === 'erledigt' ? 'erledigt' : 'offen',
-      performedBy: item.performedBy || '',
-      completedAt: item.completedAt || null,
-      createdAt: item.createdAt || '',
-    }))
+    .map((item) => {
+      const kind = resolveTaskKind(item.kind)
+      return {
+        ...item,
+        kind,
+        intervalWeeks: kind === 'reparatur' || item.intervalWeeks == null ? null : Number(item.intervalWeeks),
+        detail: item.detail || '',
+        createdBy: item.createdBy || '',
+        status: item.status === 'erledigt' ? 'erledigt' : 'offen',
+        performedBy: item.performedBy || '',
+        completedAt: item.completedAt || null,
+        createdAt: item.createdAt || '',
+      }
+    })
   const documentation = database
     .prepare(
       `SELECT id, device_id AS deviceId, maintenance_id AS maintenanceId, date,
@@ -593,11 +673,13 @@ function completionDate(value) {
 
 function trustedMaintenance(item) {
   const done = item.status === 'erledigt'
+  const kind = resolveTaskKind(item.kind)
   return {
     id: String(item.id),
     deviceId: String(item.deviceId),
     dueDate: String(item.dueDate),
-    intervalWeeks: Number(item.intervalWeeks),
+    intervalWeeks: intervalFor(kind, item.intervalWeeks),
+    kind,
     description: String(item.description ?? '').trim(),
     detail: String(item.detail ?? ''),
     createdBy: String(item.createdBy ?? ''),
@@ -614,6 +696,8 @@ function editableDetail(item, previousDetail, actor) {
 }
 
 function followUpMatches(item, completion) {
+  if (resolveTaskKind(completion.kind) === 'reparatur') return false
+  if (item.kind === 'reparatur') return false
   const interval = Number(completion.intervalWeeks)
   if (!Number.isInteger(interval) || interval < 1) return false
   return (
@@ -637,9 +721,12 @@ function assertStandardUserCannotEditMaintenances(incoming, previous, actor) {
     if (!prev) continue
     const completing = prev.status !== 'erledigt' && item.status === 'erledigt'
     if (completing) continue
+    const prevKind = resolveTaskKind(prev.kind)
+    const nextKind = resolveTaskKind(item.kind, prevKind)
     const changed =
       String(item.dueDate) !== String(prev.dueDate) ||
-      Number(item.intervalWeeks) !== Number(prev.intervalWeeks) ||
+      nextKind !== prevKind ||
+      intervalFor(prevKind, item.intervalWeeks) !== intervalFor(prevKind, prev.intervalWeeks) ||
       String(item.description ?? '').trim() !== String(prev.description ?? '').trim() ||
       String(item.createdBy ?? '') !== String(prev.createdBy ?? '') ||
       String(item.performedBy ?? '') !== String(prev.performedBy ?? '') ||
@@ -659,6 +746,7 @@ function mergeMaintenances(incoming, previous, actor) {
     completions.push({
       deviceId: String(prev.deviceId),
       intervalWeeks: Number(prev.intervalWeeks),
+      kind: resolveTaskKind(prev.kind),
       description: String(prev.description ?? '').trim(),
       detail: editableDetail(item, prev.detail, actor),
       completedAt: completionDate(item.completedAt),
@@ -671,11 +759,13 @@ function mergeMaintenances(incoming, previous, actor) {
     const prev = previousById.get(String(item.id))
     if (!prev) {
       if (actor?.role === 'super') {
+        const kind = resolveTaskKind(item.kind)
         return {
           id: String(item.id),
           deviceId: String(item.deviceId),
           dueDate: String(item.dueDate),
-          intervalWeeks: Number(item.intervalWeeks),
+          intervalWeeks: intervalFor(kind, item.intervalWeeks),
+          kind,
           description: String(item.description ?? '').trim(),
           detail: String(item.detail ?? ''),
           createdBy: actor.name,
@@ -694,6 +784,7 @@ function mergeMaintenances(incoming, previous, actor) {
         deviceId: completion.deviceId,
         dueDate: addWeeks(completion.dueDate, interval),
         intervalWeeks: interval,
+        kind: 'wartung',
         description: completion.description,
         detail: String(completion.detail ?? ''),
         createdBy: actor.name,
@@ -705,13 +796,15 @@ function mergeMaintenances(incoming, previous, actor) {
     }
     const wasDone = prev.status === 'erledigt'
     const detail = wasDone ? String(prev.detail ?? '') : editableDetail(item, prev.detail, actor)
+    const kind = wasDone ? resolveTaskKind(prev.kind) : resolveTaskKind(item.kind, prev.kind)
     if (!wasDone && item.status === 'erledigt') {
       if (!actor) throw new Error('Keine Berechtigung')
       return {
         id: prev.id,
         deviceId: prev.deviceId,
         dueDate: prev.dueDate,
-        intervalWeeks: prev.intervalWeeks,
+        intervalWeeks: intervalFor(resolveTaskKind(prev.kind), prev.intervalWeeks),
+        kind: resolveTaskKind(prev.kind),
         description: prev.description,
         detail,
         createdBy: prev.createdBy,
@@ -725,7 +818,8 @@ function mergeMaintenances(incoming, previous, actor) {
       id: prev.id,
       deviceId: String(item.deviceId),
       dueDate: wasDone ? prev.dueDate : String(item.dueDate),
-      intervalWeeks: wasDone ? prev.intervalWeeks : Number(item.intervalWeeks),
+      intervalWeeks: intervalFor(kind, wasDone ? prev.intervalWeeks : item.intervalWeeks),
+      kind,
       description: wasDone ? prev.description : String(item.description ?? '').trim(),
       detail,
       createdBy: prev.createdBy,
@@ -758,8 +852,8 @@ function persistState(database, state) {
   const insertMaintenance = database.prepare(
     `INSERT INTO maintenances (
        id, device_id, due_date, interval_weeks, description, detail,
-       created_by, status, performed_by, completed_at, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       created_by, status, performed_by, completed_at, created_at, kind
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
   const insertDocumentation = database.prepare(
     `INSERT INTO documentation
@@ -793,11 +887,12 @@ function persistState(database, state) {
       )
     })
     for (const item of state.maintenances) {
+      const kind = resolveTaskKind(item.kind)
       insertMaintenance.run(
         String(item.id),
         String(item.deviceId),
         String(item.dueDate),
-        Number(item.intervalWeeks),
+        intervalFor(kind, item.intervalWeeks),
         String(item.description ?? '').trim(),
         String(item.detail ?? ''),
         String(item.createdBy ?? ''),
@@ -805,6 +900,7 @@ function persistState(database, state) {
         String(item.performedBy ?? ''),
         item.completedAt ? String(item.completedAt) : null,
         String(item.createdAt ?? ''),
+        kind,
       )
     }
     for (const entry of state.documentation) {
@@ -890,16 +986,18 @@ function assertGroupAndAssignmentRights(previous, state, actor) {
 
 export function updateMaintenance(database, id, fields) {
   const cleanId = String(id ?? '')
-  const existing = database.prepare('SELECT id FROM maintenances WHERE id = ?').get(cleanId)
+  const existing = database.prepare('SELECT id, kind FROM maintenances WHERE id = ?').get(cleanId)
   if (!existing) throw new Error('Diese Wartung gibt es nicht mehr.')
-  const error = maintenanceEditError(fields)
+  const nextFields = { ...fields, kind: resolveTaskKind(fields?.kind, existing.kind) }
+  const error = maintenanceEditError(nextFields)
   if (error) throw new Error(error)
-  const next = maintenanceEditFields(fields)
+  const next = maintenanceEditFields(nextFields)
   database
     .prepare(
       `UPDATE maintenances
        SET due_date = ?, interval_weeks = ?, description = ?, detail = ?,
-           created_by = ?, status = ?, performed_by = ?, completed_at = ?
+           created_by = ?, status = ?, performed_by = ?, completed_at = ?,
+           kind = ?
        WHERE id = ?`,
     )
     .run(
@@ -911,6 +1009,7 @@ export function updateMaintenance(database, id, fields) {
       next.status,
       next.performedBy,
       next.completedAt,
+      next.kind,
       cleanId,
     )
   return readState(database)

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import Attachments from '../Attachments.jsx'
-import { maintenanceEditError } from '../model.js'
+import { isRepair, maintenanceEditError, taskKind } from '../model.js'
 import { listDocuments } from '../storage.js'
 
 function initialFields(maintenance) {
   return {
+    kind: taskKind(maintenance),
     dueDate: maintenance.dueDate || '',
     intervalWeeks: String(maintenance.intervalWeeks ?? ''),
     description: maintenance.description || '',
@@ -49,7 +50,8 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
     event.preventDefault()
     const payload = {
       ...fields,
-      intervalWeeks: Number(fields.intervalWeeks),
+      kind: fields.kind,
+      intervalWeeks: fields.kind === 'reparatur' ? null : Number(fields.intervalWeeks),
     }
     const message = maintenanceEditError(payload)
     if (message) {
@@ -66,6 +68,7 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
     }
   }
 
+  const repair = isRepair(fields)
   return (
     <div className="device-page maintenance-edit">
       <button type="button" className="btn secondary device-back" onClick={onOverview}>
@@ -77,13 +80,20 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
             <span className="device-title-name">{device.name}</span>
             <span className="device-number">Nr. {device.number}</span>
           </h1>
-          <p className="muted">Wartung bearbeiten</p>
+          <p className="muted">{repair ? 'Reparatur Aufgabe bearbeiten' : 'Wartung bearbeiten'}</p>
         </div>
       </header>
 
       <section>
         <h2>{fields.description.trim() || 'Wartung'}</h2>
         <form className="maintenance-form" autoComplete="off" noValidate onSubmit={save}>
+          <label>
+            Art
+            <select aria-label="Art" value={fields.kind} disabled>
+              <option value="wartung">Wartung</option>
+              <option value="reparatur">Reparatur Aufgabe</option>
+            </select>
+          </label>
           <label>
             Fällig am
             <input
@@ -92,25 +102,27 @@ export default function MaintenanceEditScreen({ device, maintenance, token, onCa
               onChange={(event) => set('dueDate', event.target.value)}
             />
           </label>
-          <label>
-            Intervall in Wochen
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={fields.intervalWeeks}
-              onChange={(event) => set('intervalWeeks', event.target.value)}
-            />
-          </label>
+          {repair ? null : (
+            <label>
+              Intervall in Wochen
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={fields.intervalWeeks}
+                onChange={(event) => set('intervalWeeks', event.target.value)}
+              />
+            </label>
+          )}
           <label className="grow">
-            Wartungsbeschreibung
+            {repair ? 'Reparatur Beschreibung' : 'Wartungsbeschreibung'}
             <input
               value={fields.description}
               onChange={(event) => set('description', event.target.value)}
             />
           </label>
           <label className="wide">
-            Wartungsbeschrieb
+            {repair ? 'Reparaturbeschrieb' : 'Wartungsbeschrieb'}
             <textarea
               rows={4}
               value={fields.detail}

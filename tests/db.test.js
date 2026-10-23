@@ -31,6 +31,7 @@ test('a new database stores the seed in SQLite', () => {
     assert.equal(state.devices.find((device) => device.id === 'd-flipper').number, 1)
     assert.equal(state.devices.find((device) => device.id === 'd-klima').number, 5)
     assert.equal(state.maintenances.every((item) => item.status === 'offen' && item.createdBy === 'Jonas Keller'), true)
+    assert.equal(state.maintenances.every((item) => item.kind === 'wartung' && item.intervalWeeks > 0), true)
     assert.equal(state.maintenances[0].intervalWeeks > 0, true)
     database.close()
   } finally {
@@ -140,6 +141,97 @@ test('maintenance changes survive a round trip through SQLite', () => {
       createdAt: '2026-10-01T12:00:00.000Z',
     })
     assert.throws(() => writeState(database, extra, user), /Keine Berechtigung/)
+    database.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a repair is stored without an interval and completion does not add a successor', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'gameorama-'))
+  const file = path.join(dir, 'app.sqlite')
+  try {
+    const database = openDatabase(file)
+    const before = readState(database)
+    assert.equal(before.maintenances.every((item) => item.kind === 'wartung' && item.intervalWeeks > 0), true)
+    const count = before.maintenances.length
+    const next = structuredClone(before)
+    next.maintenances.push({
+      id: 'm-repair',
+      deviceId: 'd-dance',
+      dueDate: '2026-10-18',
+      intervalWeeks: null,
+      kind: 'reparatur',
+      description: 'Matte flicken',
+      detail: 'Sensorfeld links.',
+      createdBy: 'Hacker',
+      status: 'offen',
+      performedBy: '',
+      completedAt: null,
+      createdAt: '2026-10-01T00:00:00.000Z',
+    })
+    writeState(database, next, { name: 'Jonas Keller', role: 'super' })
+    const stored = readState(database)
+    const repair = stored.maintenances.find((item) => item.id === 'm-repair')
+    assert.equal(repair.kind, 'reparatur')
+    assert.equal(repair.intervalWeeks, null)
+    assert.equal(repair.createdBy, 'Jonas Keller')
+    assert.equal(repair.description, 'Matte flicken')
+    assert.equal(repair.detail, 'Sensorfeld links.')
+    assert.equal(repair.status, 'offen')
+    const row = database.prepare('SELECT interval_weeks AS intervalWeeks, kind FROM maintenances WHERE id = ?').get('m-repair')
+    assert.equal(row.intervalWeeks, null)
+    assert.equal(row.kind, 'reparatur')
+    assert.equal(stored.maintenances.length, count + 1)
+
+    const anna = { name: 'Anna Berger', role: 'standard' }
+    const blocked = structuredClone(stored)
+    blocked.maintenances.push({
+      id: 'm-anna-repair',
+      deviceId: 'd-dance',
+      dueDate: '2026-10-19',
+      kind: 'reparatur',
+      intervalWeeks: null,
+      description: 'Nicht erlaubt',
+      detail: '',
+      createdBy: 'Anna Berger',
+      status: 'offen',
+      performedBy: '',
+      completedAt: null,
+      createdAt: '2026-10-02T00:00:00.000Z',
+    })
+    assert.throws(() => writeState(database, blocked, anna), /Keine Berechtigung/)
+
+    const done = markPerformed(stored, 'm-repair', anna, '2026-10-02')
+    assert.equal(done.ok, true)
+    assert.equal(done.db.maintenances.length, stored.maintenances.length)
+    writeState(database, done.db, anna)
+    const after = readState(database)
+    assert.equal(after.maintenances.length, stored.maintenances.length)
+    const finished = after.maintenances.find((item) => item.id === 'm-repair')
+    assert.equal(finished.status, 'erledigt')
+    assert.equal(finished.performedBy, 'Anna Berger')
+    assert.equal(finished.completedAt, '2026-10-02')
+    assert.equal(finished.kind, 'reparatur')
+    assert.equal(finished.intervalWeeks, null)
+    assert.equal(finished.dueDate, '2026-10-18')
+    assert.equal(
+      openMaintenances(after.maintenances, 'd-dance').some((item) => item.description === 'Matte flicken'),
+      false,
+    )
+    assert.equal(after.maintenances.filter((item) => item.deviceId === 'd-dance' && item.status === 'offen').length, 1)
+
+    const source = after.maintenances.find((item) => item.id === 'm-klima')
+    const wartung = markPerformed(after, 'm-klima', anna, '2026-10-02')
+    assert.equal(wartung.ok, true)
+    writeState(database, wartung.db, anna)
+    const finalState = readState(database)
+    const successor = openMaintenances(finalState.maintenances, 'd-klima')[0]
+    assert.equal(successor.kind, 'wartung')
+    assert.equal(successor.dueDate, addWeeks(source.dueDate, source.intervalWeeks))
+    assert.equal(successor.intervalWeeks, source.intervalWeeks)
+    assert.equal(finalState.maintenances.find((item) => item.id === 'm-repair').status, 'erledigt')
+    assert.equal(finalState.maintenances.filter((item) => item.kind === 'reparatur').length, 1)
     database.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -530,6 +622,12 @@ test('startup assigns stable device numbers in position order', () => {
     assert.equal(maintenance.status, 'offen')
     assert.equal(maintenance.performedBy, '')
     assert.equal(maintenance.createdBy, '')
+    assert.equal(maintenance.kind, 'wartung')
+    assert.equal(maintenance.intervalWeeks, 4)
+    const intervalColumn = opened.prepare('PRAGMA table_info(maintenances)').all().find((column) => column.name === 'interval_weeks')
+    assert.equal(Number(intervalColumn.notnull), 0)
+    const kindColumn = opened.prepare('PRAGMA table_info(maintenances)').all().find((column) => column.name === 'kind')
+    assert.equal(kindColumn.name, 'kind')
     assert.ok(maintenance.createdAt)
     assert.equal(once.documentation[0].userName, 'Jonas Keller')
     opened.close()

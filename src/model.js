@@ -7,6 +7,31 @@ export const LEVEL_LABEL = {
 
 const LEVEL_RANK = { none: 0, ok: 1, soon: 2, overdue: 3 }
 
+export function resolveTaskKind(value, fallback = 'wartung') {
+  if (value === 'reparatur' || value === 'wartung') return value
+  if (value && typeof value === 'object') {
+    if (value.taskKind === 'reparatur' || value.taskKind === 'wartung') return value.taskKind
+    if (value.kind === 'reparatur' || value.kind === 'wartung') return value.kind
+  }
+  return fallback === 'reparatur' ? 'reparatur' : 'wartung'
+}
+
+export function taskKind(value) {
+  return resolveTaskKind(value, 'wartung')
+}
+
+export function isRepair(value) {
+  return taskKind(value) === 'reparatur'
+}
+
+export function taskKindLabel(value) {
+  return isRepair(value) ? 'Reparatur Aufgabe' : 'Wartung'
+}
+
+function compareTaskKind(a, b) {
+  return (isRepair(a) ? 1 : 0) - (isRepair(b) ? 1 : 0)
+}
+
 export function roleLabel(role) {
   return role === 'super' ? 'Super Benutzer' : 'Standard Benutzer'
 }
@@ -74,6 +99,22 @@ function compareDeviceNames(a, b) {
   return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'de', { sensitivity: 'accent' })
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function wildcardMatch(value, pattern) {
+  const source = pattern.includes('*') ? pattern : `*${pattern}*`
+  const expression = source.split('*').map(escapeRegExp).join('.*')
+  return new RegExp(`^${expression}$`, 'iu').test(String(value ?? ''))
+}
+
+export function deviceMatchesQuery(device, groupName, query) {
+  const pattern = String(query ?? '').trim()
+  if (pattern === '') return true
+  return [device?.name, device?.number, groupName].some((value) => wildcardMatch(value, pattern))
+}
+
 function compareDeviceNumbers(a, b) {
   const left = Number(a.number)
   const right = Number(b.number)
@@ -96,6 +137,20 @@ export function sortDevices(devices, maintenances, today, mode = 'due') {
       return compareDeviceNames(a, b)
     })
   }
+  if (mode === 'kind') {
+    return list.sort((a, b) => {
+      const left = leadingOpenTask(a.id, maintenances)
+      const right = leadingOpenTask(b.id, maintenances)
+      if (!left && !right) return compareDeviceNames(a, b)
+      if (left && !right) return -1
+      if (!left && right) return 1
+      const byKind = compareTaskKind(left, right)
+      if (byKind !== 0) return byKind
+      const byDate = String(left.dueDate).localeCompare(String(right.dueDate))
+      if (byDate !== 0) return byDate
+      return compareDeviceNames(a, b)
+    })
+  }
   return list.sort((a, b) => {
     const left = URGENCY_ORDER[deviceStatus(a.id, maintenances, today).level]
     const right = URGENCY_ORDER[deviceStatus(b.id, maintenances, today).level]
@@ -109,7 +164,7 @@ export function deviceStatus(deviceId, maintenances, today) {
     (item) => item.deviceId === deviceId && item.status !== 'erledigt',
   )
   if (items.length === 0) {
-    return { level: 'none', label: LEVEL_LABEL.none, dueDate: null, description: null }
+    return { level: 'none', label: LEVEL_LABEL.none, dueDate: null, description: null, kind: null }
   }
 
   let worst = null
@@ -120,6 +175,7 @@ export function deviceStatus(deviceId, maintenances, today) {
       label: LEVEL_LABEL[level],
       dueDate: item.dueDate,
       description: item.description,
+      kind: taskKind(item),
     }
     if (
       !worst ||
@@ -172,11 +228,48 @@ export function documentationTime(item) {
   return String(item.createdAt || '')
 }
 
-export function openMaintenances(maintenances, deviceId) {
-  return maintenances
-    .filter((item) => item.deviceId === deviceId && item.status !== 'erledigt')
-    .slice()
-    .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))
+export function filterByTaskKind(items, filter = 'alle') {
+  if (filter === 'wartung') return items.filter((item) => !isRepair(item))
+  if (filter === 'reparatur') return items.filter((item) => isRepair(item))
+  return items.slice()
+}
+
+export function sortOpenMaintenances(items, mode = 'date') {
+  return items.slice().sort((a, b) => {
+    if (mode === 'kind') {
+      const byKind = compareTaskKind(a, b)
+      if (byKind !== 0) return byKind
+    }
+    const byDate = String(a.dueDate).localeCompare(String(b.dueDate))
+    if (byDate !== 0) return byDate
+    return String(a.id).localeCompare(String(b.id))
+  })
+}
+
+export function leadingOpenTask(deviceId, maintenances) {
+  const open = maintenances.filter((item) => item.deviceId === deviceId && item.status !== 'erledigt')
+  return sortOpenMaintenances(open, 'kind')[0] ?? null
+}
+
+export function deviceOverviewTasks(deviceId, maintenances, mode = 'date') {
+  const sort = mode === 'kind' ? 'kind' : 'date'
+  return openMaintenances(maintenances, deviceId, { sort }).map((item) => ({
+    id: item.id,
+    kind: taskKind(item),
+    dueDate: item.dueDate,
+    description: item.description || '',
+  }))
+}
+
+export function openMaintenances(maintenances, deviceId, options = {}) {
+  const filter = options.filter ?? 'alle'
+  const sort = options.sort ?? 'date'
+  const open = maintenances.filter((item) => item.deviceId === deviceId && item.status !== 'erledigt')
+  return sortOpenMaintenances(filterByTaskKind(open, filter), sort)
+}
+
+export function filterMaintenanceRows(rows, filter = 'alle') {
+  return filterByTaskKind(rows, filter)
 }
 
 export function sortedDocumentation(maintenances, deviceId) {
@@ -231,8 +324,9 @@ function maintenanceRecordRows(db, include) {
       id: `maintenance:${item.id}`,
       maintenanceId: item.id,
       kind: 'maintenance',
+      taskKind: taskKind(item),
       dueDate: item.dueDate || '',
-      intervalWeeks: item.intervalWeeks,
+      intervalWeeks: isRepair(item) ? null : item.intervalWeeks,
       description: item.description || '',
       detail: item.detail || '',
       createdBy: item.createdBy || '',
@@ -254,11 +348,15 @@ export function completedMaintenanceRows(db) {
 }
 
 export function sortMaintenanceOverview(rows, mode = 'due') {
-  const selected = mode === 'group' ? 'group' : 'due'
+  const selected = mode === 'group' ? 'group' : mode === 'kind' ? 'kind' : 'due'
   return rows.slice().sort((a, b) => {
     if (selected === 'group') {
       const byGroup = compareOverviewText(a.groupName, b.groupName)
       if (byGroup !== 0) return byGroup
+    }
+    if (selected === 'kind') {
+      const byKind = compareTaskKind(a, b)
+      if (byKind !== 0) return byKind
     }
     const byDue = compareOverviewDueDate(a, b)
     if (byDue !== 0) return byDue
@@ -302,11 +400,15 @@ function compareCompletedIdentity(a, b) {
 }
 
 export function sortCompletedMaintenances(rows, mode = 'date') {
-  const selected = mode === 'group' ? 'group' : 'date'
+  const selected = mode === 'group' ? 'group' : mode === 'kind' ? 'kind' : 'date'
   return rows.slice().sort((a, b) => {
     if (selected === 'group') {
       const byGroup = compareOverviewText(a.groupName, b.groupName)
       if (byGroup !== 0) return byGroup
+    }
+    if (selected === 'kind') {
+      const byKind = compareTaskKind(a, b)
+      if (byKind !== 0) return byKind
     }
     const byDate = compareCompletedDate(a, b)
     if (byDate !== 0) return byDate
@@ -362,6 +464,7 @@ export function createSeedDb(now = new Date()) {
     return {
       detail: '',
       ...fields,
+      kind: 'wartung',
       createdBy: 'Jonas Keller',
       status: 'offen',
       performedBy: '',
@@ -444,17 +547,29 @@ export function markPerformed(db, maintenanceId, user, today) {
   const name = String(user?.name ?? '').trim()
   if (!name) return { ok: false, error: 'Der Benutzer fehlt.' }
 
+  const kind = taskKind(maintenance)
   const completed = {
     ...maintenance,
+    kind,
+    intervalWeeks: kind === 'reparatur' ? null : maintenance.intervalWeeks,
     status: 'erledigt',
     performedBy: name,
     completedAt: today,
   }
+  const maintenances = db.maintenances.map((item) => (item.id === maintenance.id ? completed : item))
+  if (kind === 'reparatur') {
+    return { ok: true, db: { ...db, maintenances } }
+  }
+  const interval = Number(maintenance.intervalWeeks)
+  if (!Number.isInteger(interval) || interval < 1) {
+    return { ok: false, error: 'Das Intervall muss mindestens 1 Woche sein.' }
+  }
   const next = {
     id: uid(),
     deviceId: maintenance.deviceId,
-    dueDate: addWeeks(maintenance.dueDate, maintenance.intervalWeeks),
-    intervalWeeks: maintenance.intervalWeeks,
+    dueDate: addWeeks(maintenance.dueDate, interval),
+    intervalWeeks: interval,
+    kind: 'wartung',
     description: maintenance.description,
     detail: String(maintenance.detail ?? ''),
     createdBy: name,
@@ -467,7 +582,7 @@ export function markPerformed(db, maintenanceId, user, today) {
     ok: true,
     db: {
       ...db,
-      maintenances: db.maintenances.map((item) => (item.id === maintenance.id ? completed : item)).concat(next),
+      maintenances: maintenances.concat(next),
     },
   }
 }
@@ -585,13 +700,18 @@ export function deleteDevice(db, deviceId) {
 }
 
 export function maintenanceEditError(fields) {
+  const repair = isRepair(fields)
   const description = String(fields?.description ?? '').trim()
   const dueDate = String(fields?.dueDate ?? '').trim()
-  const interval = Number(fields?.intervalWeeks)
-  if (!description) return 'Bitte eine Wartungsbeschreibung angeben.'
+  if (!description) {
+    return repair ? 'Bitte eine Reparatur Beschreibung angeben.' : 'Bitte eine Wartungsbeschreibung angeben.'
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return 'Bitte ein Fälligkeitsdatum angeben.'
-  if (!Number.isInteger(interval) || interval < 1) {
-    return 'Das Intervall muss mindestens 1 Woche sein.'
+  if (!repair) {
+    const interval = Number(fields?.intervalWeeks)
+    if (!Number.isInteger(interval) || interval < 1) {
+      return 'Das Intervall muss mindestens 1 Woche sein.'
+    }
   }
   if (fields?.status !== 'offen' && fields?.status !== 'erledigt') {
     return 'Der Wartungstatus muss offen oder erledigt sein.'
@@ -600,12 +720,14 @@ export function maintenanceEditError(fields) {
 }
 
 export function maintenanceEditFields(fields) {
+  const kind = taskKind(fields)
   const status = fields.status === 'erledigt' ? 'erledigt' : 'offen'
   const completedRaw = String(fields.completedAt ?? '').slice(0, 10)
   const completedAt = status === 'erledigt' && /^\d{4}-\d{2}-\d{2}$/.test(completedRaw) ? completedRaw : null
   return {
+    kind,
     dueDate: String(fields.dueDate ?? '').trim(),
-    intervalWeeks: Number(fields.intervalWeeks),
+    intervalWeeks: kind === 'reparatur' ? null : Number(fields.intervalWeeks),
     description: String(fields.description ?? '').trim(),
     detail: String(fields.detail ?? ''),
     createdBy: String(fields.createdBy ?? '').trim(),
@@ -632,19 +754,34 @@ export function updateMaintenanceDetail(db, maintenanceId, detail) {
   }
 }
 
-export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description, detail, createdBy, createdAt }) {
-  const text = description.trim()
-  const interval = Number(intervalWeeks)
+export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, description, detail, createdBy, createdAt, kind }) {
+  const text = String(description ?? '').trim()
   const creator = String(createdBy ?? '').trim()
+  const task = taskKind(kind)
+  const repair = task === 'reparatur'
   if (!db.devices.some((device) => device.id === deviceId)) {
     return { ok: false, error: 'Das Gerät gibt es nicht mehr.' }
   }
-  if (!text) return { ok: false, error: 'Bitte eine Wartungsbeschreibung angeben.' }
-  if (!dueDate) return { ok: false, error: 'Bitte ein Fälligkeitsdatum angeben.' }
-  if (!Number.isInteger(interval) || interval < 1) {
-    return { ok: false, error: 'Das Intervall muss mindestens 1 Woche sein.' }
+  if (!text) {
+    return {
+      ok: false,
+      error: repair ? 'Bitte eine Reparatur Beschreibung angeben.' : 'Bitte eine Wartungsbeschreibung angeben.',
+    }
   }
-  if (!creator) return { ok: false, error: 'Der Erfasser der Wartung fehlt.' }
+  if (!dueDate) return { ok: false, error: 'Bitte ein Fälligkeitsdatum angeben.' }
+  let interval = null
+  if (!repair) {
+    interval = Number(intervalWeeks)
+    if (!Number.isInteger(interval) || interval < 1) {
+      return { ok: false, error: 'Das Intervall muss mindestens 1 Woche sein.' }
+    }
+  }
+  if (!creator) {
+    return {
+      ok: false,
+      error: repair ? 'Der Erfasser der Reparatur Aufgabe fehlt.' : 'Der Erfasser der Wartung fehlt.',
+    }
+  }
   return {
     ok: true,
     db: {
@@ -656,6 +793,7 @@ export function addMaintenance(db, { deviceId, dueDate, intervalWeeks, descripti
           deviceId,
           dueDate,
           intervalWeeks: interval,
+          kind: task,
           description: text,
           detail: String(detail ?? ''),
           createdBy: creator,
@@ -694,6 +832,7 @@ export function copyMaintenance(db, maintenanceId, targetDeviceId, createdBy, cr
   }
   const creator = String(createdBy ?? '').trim()
   if (!creator) return { ok: false, error: 'Der Erfasser der Wartung fehlt.' }
+  const kind = taskKind(source)
   return {
     ok: true,
     db: {
@@ -704,7 +843,8 @@ export function copyMaintenance(db, maintenanceId, targetDeviceId, createdBy, cr
           id: uid(),
           deviceId: targetDeviceId,
           dueDate: source.dueDate,
-          intervalWeeks: source.intervalWeeks,
+          intervalWeeks: kind === 'reparatur' ? null : source.intervalWeeks,
+          kind,
           description: source.description,
           detail: String(source.detail ?? ''),
           createdBy: creator,

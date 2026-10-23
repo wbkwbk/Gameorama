@@ -9,6 +9,7 @@ import {
   deleteMaintenance,
   deviceDeleteBlockReason,
   groupDeleteBlockReason,
+  isRepair,
   markPerformed,
   moveDevice,
   moveMaintenance,
@@ -175,6 +176,8 @@ export default function App() {
   }
 
   function completeMaintenance(maintenanceId) {
+    const current = db.maintenances.find((item) => item.id === maintenanceId)
+    const repair = isRepair(current)
     const result = markPerformed(db, maintenanceId, user, today)
     if (!result.ok) {
       setNotice({ tone: 'error', text: result.error })
@@ -183,7 +186,9 @@ export default function App() {
     commit(result.db)
     setNotice({
       tone: 'ok',
-      text: `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
+      text: repair
+        ? `Als erledigt markiert. Durchgeführt durch ${user.name}.`
+        : `Als erledigt markiert. Durchgeführt durch ${user.name}. Die nächste Wartung ist angelegt.`,
     })
   }
 
@@ -221,14 +226,14 @@ export default function App() {
           <AppMenu
             items={[
               {
-                label: 'Wartungsübersicht',
+                label: 'Wartungs- Reparaturübersicht',
                 onSelect: () => {
                   setNotice(null)
                   setRoute({ name: 'maintenance-overview' })
                 },
               },
               {
-                label: 'Durchgeführte Wartungen',
+                label: 'Durchgeführte Wartungen /Reparaturen',
                 onSelect: () => {
                   setNotice(null)
                   setRoute({ name: 'completed-maintenances' })
@@ -277,7 +282,10 @@ export default function App() {
             onSave={async (fields) => {
               const next = await updateMaintenanceRequest(user.token, editing.id, fields)
               setDb(next)
-              setNotice({ tone: 'ok', text: 'Wartung gespeichert.' })
+              setNotice({
+                tone: 'ok',
+                text: isRepair(editing) ? 'Reparatur Aufgabe gespeichert.' : 'Wartung gespeichert.',
+              })
               setRoute({ name: 'device', deviceId: device.id })
             }}
           />
@@ -303,14 +311,17 @@ export default function App() {
               commit(result.db)
             }}
             onAddMaintenance={async (input) => {
+              const repair = isRepair(input.kind)
               const result = addMaintenance(db, { ...input, deviceId: device.id, createdBy: user.name })
               if (!result.ok) return result.error
               const saved = await commit(result.db)
               if (!saved) return 'Speichern in der Datenbank ist fehlgeschlagen.'
               const previous = new Set(db.maintenances.map((item) => item.id))
               const created = result.db.maintenances.find((item) => !previous.has(item.id))
-              if (!created) return 'Wartung konnte nicht gespeichert werden.'
-              setNotice({ tone: 'ok', text: 'Wartung hinzugefügt.' })
+              if (!created) {
+                return repair ? 'Reparatur Aufgabe konnte nicht gespeichert werden.' : 'Wartung konnte nicht gespeichert werden.'
+              }
+              setNotice({ tone: 'ok', text: repair ? 'Reparatur Aufgabe hinzugefügt.' : 'Wartung hinzugefügt.' })
               return { id: created.id }
             }}
             onDeleteMaintenance={(maintenanceId, description) => {
@@ -329,9 +340,12 @@ export default function App() {
               setRoute({ name: 'maintenance-edit', deviceId: device.id, maintenanceId })
             }}
             onDeleteDocumentation={(maintenanceId, description) => {
+              const repair = isRepair(db.maintenances.find((item) => item.id === maintenanceId))
               askConfirm({
                 title: 'Dokumentation löschen',
-                message: `«${description}» wird aus der Dokumentation entfernt. Dokumente dieser Wartung werden gelöscht. Die offene Folgewartung bleibt erhalten.`,
+                message: repair
+                  ? `«${description}» wird aus der Dokumentation entfernt. Dokumente dieser Reparatur Aufgabe werden gelöscht.`
+                  : `«${description}» wird aus der Dokumentation entfernt. Dokumente dieser Wartung werden gelöscht. Die offene Folgewartung bleibt erhalten.`,
                 confirmLabel: 'Dokumentation löschen',
                 action: () => {
                   deleteMaintenanceRecordRequest(user.token, maintenanceId)
@@ -349,6 +363,9 @@ export default function App() {
               })
             }}
             onMoveMaintenance={(maintenanceId, targetDeviceId) => {
+              const noun = isRepair(db.maintenances.find((item) => item.id === maintenanceId))
+                ? 'Reparatur Aufgabe'
+                : 'Wartung'
               const result = moveMaintenance(db, maintenanceId, targetDeviceId)
               if (!result.ok) {
                 setNotice({ tone: 'error', text: result.error })
@@ -358,10 +375,13 @@ export default function App() {
               commit(result.db)
               setNotice({
                 tone: 'ok',
-                text: `Wartung wurde ${target ? `«${target.name}»` : 'dem anderen Gerät'} zugeordnet.`,
+                text: `${noun} wurde ${target ? `«${target.name}»` : 'dem anderen Gerät'} zugeordnet.`,
               })
             }}
             onCopyMaintenance={(maintenanceId, targetDeviceId) => {
+              const noun = isRepair(db.maintenances.find((item) => item.id === maintenanceId))
+                ? 'Reparatur Aufgabe'
+                : 'Wartung'
               const result = copyMaintenance(db, maintenanceId, targetDeviceId, user.name)
               if (!result.ok) {
                 setNotice({ tone: 'error', text: result.error })
@@ -371,7 +391,7 @@ export default function App() {
               commit(result.db)
               setNotice({
                 tone: 'ok',
-                text: `Wartung wurde nach ${target ? `«${target.name}»` : 'dem Gerät'} kopiert. Nur die Textfelder, keine Dokumente.`,
+                text: `${noun} wurde nach ${target ? `«${target.name}»` : 'dem Gerät'} kopiert. Nur die Textfelder, keine Dokumente.`,
               })
             }}
             onDeleteDevice={() => {
