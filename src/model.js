@@ -99,6 +99,22 @@ function compareDeviceNames(a, b) {
   return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'de', { sensitivity: 'accent' })
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function wildcardMatch(value, pattern) {
+  const source = pattern.includes('*') ? pattern : `*${pattern}*`
+  const expression = source.split('*').map(escapeRegExp).join('.*')
+  return new RegExp(`^${expression}$`, 'iu').test(String(value ?? ''))
+}
+
+export function deviceMatchesQuery(device, groupName, query) {
+  const pattern = String(query ?? '').trim()
+  if (pattern === '') return true
+  return [device?.name, device?.number, groupName].some((value) => wildcardMatch(value, pattern))
+}
+
 function compareDeviceNumbers(a, b) {
   const left = Number(a.number)
   const right = Number(b.number)

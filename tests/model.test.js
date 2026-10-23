@@ -9,6 +9,7 @@ import {
   createSeedDb,
   deleteDevice,
   deleteGroup,
+  deviceMatchesQuery,
   deviceOverviewTasks,
   deviceStatus,
   dueLevel,
@@ -639,6 +640,46 @@ test('a repair is stored without an interval and completing it does not create a
   assert.equal(copy.kind, 'reparatur')
   assert.equal(copy.intervalWeeks, null)
   assert.equal(copy.status, 'offen')
+})
+
+test('device search matches name, number, and group, with * as a wildcard', () => {
+  const flipper = { name: 'Flipper-König', number: 12 }
+  const kugel = { name: 'Lichtkugel', number: 4 }
+  const quest = { name: 'VR-Station Quest-Raum', number: 8 }
+  const klima = { name: 'Klimaanlage Spielhalle', number: 112 }
+
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', ''), true)
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', '   '), true)
+
+  assert.equal(deviceMatchesQuery(quest, 'VR & Konsolen', 'quest'), true)
+  assert.equal(deviceMatchesQuery(quest, 'VR & Konsolen', 'QUEST'), true)
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', 'quest'), false)
+
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', 'Flip*'), true)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', 'Flip*'), false)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', '*Kugel'), true)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', '*kugel'), true)
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', '*Kugel'), false)
+
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', '*12*'), true)
+  assert.equal(deviceMatchesQuery(klima, 'Haustechnik', '*12*'), true)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', '*12*'), false)
+  assert.equal(deviceMatchesQuery(klima, 'Haustechnik', '1*2'), true)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', '1*2'), false)
+
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', 'Flip*König'), true)
+  assert.equal(deviceMatchesQuery(kugel, 'Arcade-Automaten', 'Li*gel'), true)
+  assert.equal(deviceMatchesQuery(quest, 'VR & Konsolen', 'VR*Raum'), true)
+  assert.equal(deviceMatchesQuery(quest, 'VR & Konsolen', 'VR*Kugel'), false)
+
+  assert.equal(deviceMatchesQuery(klima, 'Haustechnik', 'haustechnik'), true)
+  assert.equal(deviceMatchesQuery(klima, 'Haustechnik', '*technik'), true)
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', 'Haustechnik'), false)
+
+  assert.equal(deviceMatchesQuery({ name: 'AxB', number: 1 }, 'Gruppe', 'A.B'), false)
+  assert.equal(deviceMatchesQuery({ name: 'A.B', number: 1 }, 'Gruppe', 'A.B'), true)
+  assert.equal(deviceMatchesQuery({ name: 'AxB', number: 1 }, 'Gruppe', 'A*B'), true)
+  assert.equal(deviceMatchesQuery(flipper, 'Arcade-Automaten', '*'), true)
 })
 
 test('overview model keeps every open repair on its device', () => {

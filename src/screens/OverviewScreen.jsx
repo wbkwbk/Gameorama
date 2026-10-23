@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   deviceDeleteBlockReason,
+  deviceMatchesQuery,
   deviceOverviewTasks,
   deviceStatus,
   formatDisplayDate,
@@ -51,6 +52,7 @@ export default function OverviewScreen({
   const [deviceNumbers, setDeviceNumbers] = useState({})
   const [deviceErrors, setDeviceErrors] = useState({})
   const [sortMode, setSortMode] = useState(readDeviceSort)
+  const [deviceQuery, setDeviceQuery] = useState('')
 
   function changeSort(value) {
     setSortMode(value)
@@ -95,15 +97,42 @@ export default function OverviewScreen({
     }
   }
 
+  const queryActive = deviceQuery.trim() !== ''
+  const groups = db.groups.flatMap((group) => {
+    const devices = sortDevices(
+      db.devices.filter((device) => (
+        device.groupId === group.id && deviceMatchesQuery(device, group.name, deviceQuery)
+      )),
+      db.maintenances,
+      today,
+      sortMode,
+    )
+    if (queryActive && devices.length === 0) return []
+    return [{ group, devices }]
+  })
+
   return (
     <div className="board">
       <div className="board-head">
-        <div>
+        <div className="board-intro">
           <h1>Übersicht</h1>
           <p className="muted">
             Geräte nach Gruppe. Die Farbe zeigt den dringendsten offenen Termin.
           </p>
         </div>
+        <label className="device-search">
+          <input
+            type="text"
+            value={deviceQuery}
+            onChange={(event) => setDeviceQuery(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            placeholder="Gerät suchen"
+            aria-label="Gerät suchen"
+            autoComplete="off"
+            spellCheck="false"
+          />
+        </label>
         <ul className="summary">
           <li className="overdue">{counts.overdue} überfällig</li>
           <li className="soon">{counts.soon} in 1 Woche</li>
@@ -114,13 +143,7 @@ export default function OverviewScreen({
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
       <MovableStage>
-        {db.groups.map((group) => {
-        const devices = sortDevices(
-          db.devices.filter((device) => device.groupId === group.id),
-          db.maintenances,
-          today,
-          sortMode,
-        )
+        {groups.map(({ group, devices }) => {
         return (
           <ResizableCard
             as="section"
@@ -245,6 +268,9 @@ export default function OverviewScreen({
         )
         })}
       </MovableStage>
+      {queryActive && groups.length === 0 && (
+        <p className="empty">Keine Geräte gefunden.</p>
+      )}
 
       {isSuper && (
         <form className="inline-form group-create" onSubmit={submitGroup}>
