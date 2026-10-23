@@ -10,9 +10,6 @@ import {
   sortDevices,
   taskKindLabel,
 } from '../model.js'
-import MovableStage from '../MovableStage.jsx'
-import ResizableCard from '../ResizableCard.jsx'
-import ResizableList from '../ResizableList.jsx'
 
 const SORT_KEY = 'gameorama-device-sort'
 
@@ -142,20 +139,11 @@ export default function OverviewScreen({
 
       {notice && <p className={`banner banner-${notice.tone}`} role="status">{notice.text}</p>}
 
-      <MovableStage>
-        {groups.map(({ group, devices }) => {
-        return (
-          <ResizableCard
-            as="section"
-            className="group"
-            key={group.id}
-            movable
-            storageKey={`group-list:${group.id}`}
-            label={`Geräteliste ${group.name}`}
-          >
-            <header className="group-head drag-surface">
+      <div className="group-stack">
+        {groups.map(({ group, devices }) => (
+          <section className="group group-card" key={group.id}>
+            <header className="group-head">
               <div className="group-title">
-                <button type="button" className="drag-handle" aria-label={`${group.name} verschieben`} />
                 <h2>{group.name}</h2>
               </div>
               <div className="group-tools">
@@ -186,88 +174,83 @@ export default function OverviewScreen({
                 )}
               </div>
             </header>
-            {devices.length === 0 ? (
-              <p className="empty">Keine Geräte in dieser Gruppe.</p>
-            ) : (
-              <ResizableList
-                itemKey={`${group.id}:${devices.length}`}
-                storageKey={`group-list:${group.id}`}
-                label={`Geräteliste ${group.name}`}
-                rowSelector=".device-row"
-                className="device-list"
-              >
-                {devices.map((device) => {
-                  const status = deviceStatus(device.id, db.maintenances, today)
-                  const tasks = deviceOverviewTasks(device.id, db.maintenances, sortMode)
-                  return (
-                    <li key={device.id} className={`device-row level-${status.level}`}>
-                      <button type="button" className="device-open" onClick={() => onOpenDevice(device.id)}>
-                        <span className={`pill level-${status.level}`}>{status.label}</span>
-                        <span className="device-name">
-                          {device.name}
-                          <span className="device-number">Nr. {device.number}</span>
-                        </span>
-                        <span className="device-meta">
-                          {tasks.length === 0
-                            ? 'Noch keine Wartung angelegt'
-                            : tasks.map((task) => (
-                                <span key={task.id} className="device-task">
-                                  <span className={`task-kind ${task.kind}`}>{taskKindLabel(task.kind)}</span>
-                                  {`Fällig ${formatDisplayDate(task.dueDate)}${task.description ? ` · ${task.description}` : ''}`}
-                                </span>
-                              ))}
-                        </span>
-                      </button>
-                      {isSuper && (
-                        <button
-                          type="button"
-                          className="btn tiny danger"
-                          disabled={Boolean(deviceDeleteBlockReason(db, device.id))}
-                          onClick={() => onDeleteDevice(device)}
-                        >
-                          Löschen
+            <div className="group-card-scroll">
+              {devices.length === 0 ? (
+                <p className="empty">Keine Geräte in dieser Gruppe.</p>
+              ) : (
+                <ul className="device-list group-device-list">
+                  {devices.map((device) => {
+                    const status = deviceStatus(device.id, db.maintenances, today)
+                    const tasks = deviceOverviewTasks(device.id, db.maintenances, sortMode)
+                    return (
+                      <li key={device.id} className={`device-row level-${status.level}`}>
+                        <button type="button" className="device-open" onClick={() => onOpenDevice(device.id)}>
+                          <span className={`pill level-${status.level}`}>{status.label}</span>
+                          <span className="device-name">
+                            {device.name}
+                            <span className="device-number">Nr. {device.number}</span>
+                          </span>
+                          <span className="device-meta">
+                            {tasks.length === 0
+                              ? 'Noch keine Wartung angelegt'
+                              : tasks.map((task) => (
+                                  <span key={task.id} className="device-task">
+                                    <span className={`task-kind ${task.kind}`}>{taskKindLabel(task.kind)}</span>
+                                    {`Fällig ${formatDisplayDate(task.dueDate)}${task.description ? ` · ${task.description}` : ''}`}
+                                  </span>
+                                ))}
+                          </span>
                         </button>
-                      )}
-                    </li>
-                  )
-                })}
-              </ResizableList>
-            )}
-            {isSuper && (
-              <form className="inline-form" onSubmit={(event) => submitDevice(event, group.id)}>
-                <label className="number-field">
-                  Nummer
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
-                    aria-label={`Nummer für ${group.name}`}
-                    value={deviceNumbers[group.id] ?? suggestedNumber}
-                    onChange={(event) =>
-                      setDeviceNumbers((current) => ({ ...current, [group.id]: event.target.value }))
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Gerät hinzufügen
-                  <input
-                    value={deviceDrafts[group.id] || ''}
-                    onChange={(event) =>
-                      setDeviceDrafts((current) => ({ ...current, [group.id]: event.target.value }))
-                    }
-                    placeholder="Gerätename"
-                  />
-                </label>
-                <button type="submit" className="btn secondary">Hinzufügen</button>
-                {deviceErrors[group.id] && <p className="form-error">{deviceErrors[group.id]}</p>}
-              </form>
-            )}
-          </ResizableCard>
-        )
-        })}
-      </MovableStage>
+                        {isSuper && (
+                          <button
+                            type="button"
+                            className="btn tiny danger"
+                            disabled={Boolean(deviceDeleteBlockReason(db, device.id))}
+                            onClick={() => onDeleteDevice(device)}
+                          >
+                            Löschen
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {isSuper && (
+                <form className="inline-form" onSubmit={(event) => submitDevice(event, group.id)}>
+                  <label className="number-field">
+                    Nummer
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      aria-label={`Nummer für ${group.name}`}
+                      value={deviceNumbers[group.id] ?? suggestedNumber}
+                      onChange={(event) =>
+                        setDeviceNumbers((current) => ({ ...current, [group.id]: event.target.value }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Gerät hinzufügen
+                    <input
+                      value={deviceDrafts[group.id] || ''}
+                      onChange={(event) =>
+                        setDeviceDrafts((current) => ({ ...current, [group.id]: event.target.value }))
+                      }
+                      placeholder="Gerätename"
+                    />
+                  </label>
+                  <button type="submit" className="btn secondary">Hinzufügen</button>
+                  {deviceErrors[group.id] && <p className="form-error">{deviceErrors[group.id]}</p>}
+                </form>
+              )}
+            </div>
+          </section>
+        ))}
+      </div>
       {queryActive && groups.length === 0 && (
         <p className="empty">Keine Geräte gefunden.</p>
       )}
